@@ -1,0 +1,24 @@
+# Privileged Linux dev environment (bpftrace, BPF build, wrk).
+#
+# Note: network_mode: host and pid: host break or hang on Docker Desktop (macOS).
+# Workloads run inside the container on 127.0.0.1 — default bridge is fine (dev smoke only).
+#
+#   docker compose -f docker/compose.yml build
+#   docker compose -f docker/compose.yml run --rm -T dev bash
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: criticast/phase0-dev:latest
+    privileged: true
+    volumes:
+      - ..:/src
+      # On Docker Desktop these come from the Linux VM (correct for eBPF/BTF).
+      - /sys/kernel/btf:/sys/kernel/btf:ro
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+    working_dir: /src
+    environment:
+      - COMM=httpgo
+    command: bash

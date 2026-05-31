@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "go1.22.0": {
+    "g.goid": { "amd64": 152, "arm64": 152 },
+    "g.parentGoid": { "amd64": 280, "arm64": 280 }
+  },
+  "go1.21.0": {
+    "g.goid": { "amd64": 152, "arm64": 152 },
+    "g.parentGoid": { "amd64": 280, "arm64": 280 }
+  }
+}

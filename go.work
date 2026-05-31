@@ -1,0 +1,7 @@
+go 1.22
+
+use (
+	.
+	./testdata/p0a/httpgo
+	./testdata/p0b/server
+)

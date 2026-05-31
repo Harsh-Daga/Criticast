@@ -1,0 +1,6 @@
+# Optional overrides for native Linux (host network + host PID for attaching to host processes).
+#   docker compose -f docker/compose.yml -f docker/compose.linux.yml run --rm -T dev
+services:
+  dev:
+    pid: host
+    network_mode: host

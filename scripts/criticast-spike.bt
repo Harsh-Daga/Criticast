@@ -1,0 +1,60 @@
+#!/usr/bin/env bpftrace
+// criticast bpftrace spike — sched event rates + preempt vs block split.
+// CHARTER Appendix Q.1
+//
+// Do not run this file directly with env vars — use ./scripts/spike.sh
+// which substitutes __CRITICAST_SPIKE_COMM__ and __CRITICAST_SPIKE_DURATION__.
+//
+// Manual run with defaults (httpgo, 30s) after sed:
+//   sed -e 's/__CRITICAST_SPIKE_COMM__/httpgo/g' -e 's/__CRITICAST_SPIKE_DURATION__/30/g' \
+//     scripts/criticast-spike.bt | sudo bpftrace -
+// Prefer: ./scripts/spike.sh or make spike
+
+BEGIN {
+    @comm_name = "__CRITICAST_SPIKE_COMM__";
+    @duration_sec = __CRITICAST_SPIKE_DURATION__;
+    @start = nsecs;
+    @deadline = @start + __CRITICAST_SPIKE_DEADLINE_NS__;
+    printf("criticast spike: comm=%s duration=%ds\n", @comm_name, @duration_sec);
+    printf("If peak @wakes/s approaches 1e6, min_block+sampling are mandatory.\n\n");
+}
+
+tracepoint:sched:sched_switch
+/args->prev_comm == @comm_name || args->next_comm == @comm_name/
+{
+    if (args->prev_comm == @comm_name) {
+        if (args->prev_state == 0) {
+            @preempt = count();
+        } else {
+            @block = count();
+            @blockclass[args->prev_state] = count();
+        }
+    }
+}
+
+tracepoint:sched:sched_waking
+/args->comm == @comm_name/
+{
+    @wakes = count();
+}
+
+interval:s:1 {
+    printf("\n--- 1s comm=%s ---\n", @comm_name);
+    print(@preempt);
+    print(@block);
+    print(@wakes);
+    if (nsecs >= @deadline) {
+        exit();
+    }
+    clear(@preempt);
+    clear(@block);
+    clear(@wakes);
+    clear(@blockclass);
+}
+
+END {
+    printf("\n=== final second (if any) ===\n");
+    print(@preempt);
+    print(@block);
+    print(@wakes);
+}
