@@ -26,6 +26,21 @@ func main() {
 			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
 			os.Exit(1)
 		}
+	case "probe-stats":
+		if err := runProbeStats(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
+			os.Exit(1)
+		}
+	case "analyze":
+		if err := runAnalyze(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
+			os.Exit(1)
+		}
+	case "export":
+		if err := runExport(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
+			os.Exit(exitCode(err))
+		}
 	case "env":
 		if err := runEnv(); err != nil {
 			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
@@ -42,9 +57,12 @@ func usage() {
 
 Usage:
   criticast env
-  criticast record --pid <pid> --dur <sec> [--min-block 1us|50us] [--sample N] [--out trace.jsonl]
-  criticast eval --gt-log <log> [--trace trace.jsonl] [--mode e1-lineage|all]
+  criticast record --pid <pid> --dur <sec> [--min-block 1us|50us] [--sample N] [--out trace.criticast]
+  criticast analyze <trace> [--request cookie|tid] [--top N] [--format text|json]
+  criticast export <trace> --pprof out.pb.gz [--request cookie|tid]
+  criticast eval --gt-log <log> [--trace trace.criticast] [--mode e1-lineage|all]
   criticast go-smoke --pid <pid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
+  criticast probe-stats --pid <pid> --dur 5s  (sched BPF counters; run wrk while waiting)
 
 `)
 }

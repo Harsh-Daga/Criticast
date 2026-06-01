@@ -8,9 +8,11 @@ This page records **what works today**, **what we learned from early validation*
 |------|--------|
 | BPF collector | `sched_switch` / `sched_waking`, task storage, ringbuf, per-CPU stats, targeted TGID |
 | Go uprobes | `runtime.casgstatus` → `tid_to_task` / `task_id` on events |
-| Userspace | Ringbuf drain (bounded channel, drop + count), JSONL trace, CLI `record` / `eval` / `go-smoke` |
-| Attribution | E1 lineage, E2 sudog-elem (offline GT), E3 resource suppress, E4 naive baseline |
-| Analyzer | Wait-for graph build, longest-path keys, Jaccard helper |
+| Userspace | Ringbuf drain, trace v2 (`CRTC`), CLI `record` / `analyze` / `export` / `eval` |
+| Symbolize | Trace stack_id → frames (PC placeholders; ELF maps planned) |
+| Export | `criticast export --pprof` (gzip profile, `critical_wait` samples) |
+| Attribution | E1 lineage, E2 sudog-elem (offline GT), E3 resource suppress in analyze, E4 naive baseline |
+| Analyzer | Segments, SCC, longest path, false-wakeup filter, dominant-wait aggregation |
 | Regression | `httpgo` workload, adversarial server + interleaved load, scripts under `scripts/` |
 
 Published numbers: [results/README.md](../results/README.md).
@@ -44,11 +46,31 @@ Published numbers: [results/README.md](../results/README.md).
 
 `bpf/collector.c` reads `last_sudog_elem` / `futex_uaddr` into `event.aux` but **does not write them yet**. Trace-joined E2 therefore falls back to waker-token heuristics (~78% chan precision). Closing this gap is the top BPF attribution task.
 
-## Next milestones
+## Phase 1 — status
 
-Ordered by dependency. Each should land with tests and an update to benchmark reports when behavior changes.
+**Plumbing (Bar A): validated** on Linux 6.1 cloud — record/analyze/pprof, zero ringbuf drops under wrk ([results/p1-smoke.md](../results/p1-smoke.md)).
 
-### 1. Kernel refinement (L2)
+**Thesis (Bar B): not validated** on live `httpgo` demo — unscoped longest path, all `WC_UNKNOWN`, idle/sentinel dominant waits. Mechanism precision remains on **P0 GT + eval**, not this trace.
+
+See **[P1_COMPLETION.md](P1_COMPLETION.md)** (required reading before claiming “P1 proves Criticast”).
+
+| P1 charter scope | Shipped |
+|------------------|---------|
+| End-to-end Tier-0/1 data path | Yes |
+| E3: no confident Tier-2 chan without `aux` | Yes (code; not exercised when class unknown) |
+| CI + golden tests | Yes |
+| Request-scoped critical path ≈ wall clock on live trace | **No** (Bar B) |
+| sudog.elem / real wait classes on live BPF | **No** (P2) |
+
+**Remaining:** merge P1 to `main` if needed; **all new work on `phase2/tier2-product`**.
+
+**Next work:** branch `phase2/tier2-product` · gate: `scripts/validate-bar-b.sh` (stub until P2 lands).
+
+## Next milestones (Phase 2 — active)
+
+Bar B acceptance and sprint registry live in this file and [PHASES.md](PHASES.md). Summary:
+
+### 1. Kernel refinement (L2) — P2 priority
 
 - [ ] Populate `last_sudog_elem` on Go channel block path (gopark / wait reason)
 - [ ] Optional `futex_uaddr` for mutex waits
@@ -65,15 +87,18 @@ Ordered by dependency. Each should land with tests and an update to benchmark re
 
 ### 3. Symbolization & export (L1 / L5)
 
-- [ ] `internal/symbolize` — stack_id → frames, build-id cache
-- [ ] `internal/export` — pprof, OTLP-Profiles, stable `.criticast` trace versioning
-- [ ] CLI: `analyze`, `top`, export flags per charter Part J
+- [x] `internal/symbolize` — Resolver + trace STACKS (P1)
+- [ ] ELF `/proc` symbolization + build-id cache
+- [x] `internal/export` — pprof (P1)
+- [ ] OTLP-Profiles default export (P3)
+- [x] CLI: `analyze`, `export --pprof` (P1); `top` TUI (P3)
 
 ### 4. Analyzer (L4)
 
-- [ ] SCC decomposition, cascade segments (charter Part E)
-- [ ] Per-request critical path with confidence on edges
-- [ ] Invariant tests: `path_weight ≈ wall_clock` on golden traces
+- [x] SCC + longest path + dominant waits (P1)
+- [ ] Full wPerf cascade redistribution (E.2)
+- [x] Confidence + ambiguous buckets in analyze (P1)
+- [x] Golden trace tests (P1)
 
 ### 5. Operations
 

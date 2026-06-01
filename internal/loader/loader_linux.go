@@ -72,12 +72,7 @@ func loadObject(path string, targetTGID uint32, cfg Config) (*Collector, error) 
 	}
 
 	k := uint32(0)
-	bc := bpfConfig{
-		MinBlockNs:  cfg.MinBlockNs,
-		SampleMod:   cfg.SampleMod,
-		Flags:       cfg.Flags,
-		CookieTTLNs: cfg.CookieTTLNs,
-	}
+	bc := bpfConfig(cfg)
 	if err := objs.Cfg.Put(&k, &bc); err != nil {
 		return nil, errors.Join(fmt.Errorf("cfg map: %w", err), objs.close())
 	}

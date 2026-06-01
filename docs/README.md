@@ -4,10 +4,13 @@ Start here, then drill into the charter for design depth.
 
 | Document | Audience | Contents |
 |----------|----------|----------|
+| [PHASES.md](PHASES.md) | Everyone | Phase map, ship policy, active branch |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | Operators, contributors | Build, run, benchmarks, troubleshooting |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Everyone | Layers, data flow, invariants |
 | [ROADMAP.md](ROADMAP.md) | Maintainers | Current capabilities, validated learnings, next work |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | PRs, licenses, regression expectations |
+| [CI.md](CI.md) | Contributors | GitHub Actions jobs, triggers, local parity |
+| [P1_COMPLETION.md](P1_COMPLETION.md) | Maintainers | P1 plumbing vs thesis (Bar A / Bar B) |
 | [../CHARTER.md](../CHARTER.md) | Designers | Full technical specification |
 | [../AGENTS.md](../AGENTS.md) | Contributors + LLMs | Day-to-day engineering rules |
 | [../results/README.md](../results/README.md) | Reviewers | Overhead and attribution benchmark reports |

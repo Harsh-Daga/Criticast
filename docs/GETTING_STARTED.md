@@ -36,6 +36,10 @@ make bpf go workloads    # bpf/collector.bpf.o + bin/criticast, httpgo, p0b-serv
 | Script | Purpose |
 |--------|---------|
 | `verify.sh` | Build + unit tests + BPF compile gate (every PR) |
+| `demo-p1.sh` | Phase 1 E2E: httpgo + wrk + record + analyze + pprof |
+| `sched-smoke.sh` | bpftrace sched_switch count for `httpgo` |
+| `ci-lint.sh` | golangci-lint (same toolchain as module) |
+| `validate-bar-b.sh` | Phase 2 thesis gate (stub until P2 implemented) |
 | `check-linux-env.sh` | Tool and BTF preflight |
 | `debian-setup.sh` / `install-go.sh` | Host setup |
 | `spike.sh` | bpftrace wake-rate check (`make spike`) |
@@ -56,20 +60,93 @@ sudo ./bin/criticast record --pid <tgid> --dur 30s \
   --min-block 1us \
   --sample 1 \
   --bpf-object bpf/collector.bpf.o \
-  --out /tmp/trace.jsonl
+  --out /tmp/trace.criticast
 ```
 
-Go targets — add uprobes for goroutine IDs:
+Traces use **format v2** (magic `CRTC`): header, stacks section, events, footer. `analyze` also reads **v1 JSONL** traces from earlier validation runs.
+
+Go targets — add uprobes for goroutine IDs. **Generate load while recording** (idle targets often produce empty traces):
 
 ```bash
-sudo ./bin/criticast record --pid $(pgrep -nx httpgo) --dur 30s \
+./scripts/demo-p1.sh   # recommended: starts bin/httpgo, wrk load, checks bpf emitted > 0
+```
+
+Manual equivalent:
+
+```bash
+make bpf go workloads
+# Use bin/httpgo — pgrep httpgo may match an unrelated process on shared hosts.
+./bin/httpgo &; sleep 1; PID=$(pgrep -nx httpgo)
+wrk -t2 -c20 -d30s http://127.0.0.1:8080/ &
+sudo ./bin/criticast record --pid "$PID" --dur 30s \
   --bpf-object bpf/collector.bpf.o \
-  --go-binary "/proc/$(pgrep -nx httpgo)/exe" \
-  --go-version go1.22.0 \
-  --out /tmp/trace.jsonl
+  --go-binary "$(pwd)/bin/httpgo" --go-version go1.22.0 \
+  --out /tmp/trace.criticast
+wait
 ```
 
 Output includes userspace and BPF drop counters. Ringbuf drops must stay at zero under normal load.
+
+## Analyze
+
+Critical-path analysis (Tier-0/1): wait-for graph, SCC collapse, longest blocked path, dominant waits.
+
+```bash
+./bin/criticast analyze /tmp/trace.criticast
+./bin/criticast analyze /tmp/trace.criticast --request 0xabc --format json
+./bin/criticast analyze /tmp/trace.criticast --top 20 --min-confidence 80
+./bin/criticast analyze testdata/traces/golden_chain.jsonl   # offline fixture
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--request` | (none) | Scope by cookie (`0x…`) or tid (decimal) |
+| `--top` | `10` | Dominant waits when not scoped |
+| `--format` | `text` | `text` or `json` |
+| `--min-confidence` | `0` | Hide sub-threshold edges from critical path (still listed as ambiguous) |
+| `--spurious-wake-us` | `10` | False-wakeup filter threshold (charter E.4) |
+
+Channel waits without `aux`/elem appear as **ambiguous** — not high-confidence Tier-2.
+
+## Export (pprof)
+
+```bash
+./bin/criticast export /tmp/trace.criticast --pprof /tmp/criticast.pb.gz
+go tool pprof -top /tmp/criticast.pb.gz
+```
+
+`--otlp` is reserved for P3 (exits with code 2). Use `--pprof` for Grafana/Pyroscope-compatible profiles.
+
+## Phase 1 demo script
+
+```bash
+./scripts/demo-p1.sh
+```
+
+On macOS the script prints analyzer-only commands (no BPF attach).
+
+Environment variables:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `GO_UPROBES` | `1` | Set `0` for sched-only record (no `casgstatus`) |
+| `GO_VERSION` | `go1.22.0` | Key in `bpf/offsets.json` for goid offset |
+| `DUR` | `10s` | Record and wrk duration |
+
+Diagnostics if record shows `emitted=0`:
+
+```bash
+./scripts/sched-smoke.sh          # bpftrace: sched activity for comm httpgo
+sudo ./bin/criticast probe-stats --pid "$(pgrep -nx httpgo)" --dur 5s --bpf-object bpf/collector.bpf.o
+```
+
+## Phase 1 validation sign-off
+
+- P1 plumbing: **[P1_COMPLETION.md](P1_COMPLETION.md)**
+- Phase map + ship policy: **[PHASES.md](PHASES.md)**
+- **Active implementation:** branch `phase2/tier2-product` — see [ROADMAP.md](ROADMAP.md) Phase 2 and [PHASES.md](PHASES.md)
+
+Published smoke numbers (Linux 6.1 cloud, 122k events, 0 ringbuf drops): **[results/p1-smoke.md](../results/p1-smoke.md)**.
 
 ## Evaluate attribution
 
@@ -108,10 +185,29 @@ docker compose -f docker/compose.yml run --rm dev
 
 Inside the container: `make test`, `make workloads`, optional `make spike`. Do not treat container wake rates as production sign-off.
 
+## CI parity on your machine
+
+```bash
+export PATH="/usr/local/go/bin:$PATH"
+./scripts/ci-go.sh
+./scripts/ci-lint.sh          # not: standalone golangci-lint binary from an old release
+govulncheck ./...            # optional; upgrade Go if stdlib CVEs reported
+
+# Linux with tools already installed (check-linux-env OK):
+SKIP_APT=1 sudo env PATH="/usr/local/bin:/usr/local/go/bin:$PATH" ./scripts/ci-linux-bpf.sh
+```
+
+If `apt-get update` fails (e.g. Lacework `forky` 404 repos on Debian), either fix `/etc/apt/sources.list*` or use `SKIP_APT=1` when `bpftrace`, `clang`, `bpftool`, and `wrk` are already present.
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
+| `golangci-lint`: `undefined: profile` or `go1.22 … lower than … 1.24` | Run `./scripts/ci-lint.sh` (not bare `go install` + `golangci-lint run`). Installs the linter with `GOTOOLCHAIN=go1.24.0`. |
+| `record`: all BPF stats zero / empty trace | Wrong `httpgo` on host (`pgrep httpgo` may not be `bin/httpgo`); run `./scripts/demo-p1.sh` or generate load with `wrk` during `record` |
+| `go tool pprof`: unrecognized profile format | Empty trace export; fix recording first. Use `go tool pprof` from Go 1.22+ |
+| `apt-get update` fails / Lacework 404 | `SKIP_APT=1 sudo ./scripts/ci-linux-bpf.sh` after `check-linux-env.sh` passes |
+| `govulncheck` reports Go stdlib CVEs | Upgrade Go to **1.24.6+** (or latest 1.24.x patch); not a criticast code bug |
 | `invalid program type Tracing, expected RawTracepoint` | Use `link.AttachTracing` for `tp_btf/*` (already in tree) |
 | BPF link / `ld.lld` fails | Single TU build: `collector.c` includes `go_probe.c` |
 | `parse error` on `--dur 5` | Use `5s` or plain seconds |
@@ -123,4 +219,4 @@ Inside the container: `make test`, `make workloads`, optional `make spike`. Do n
 
 ## What is not in the tree yet
 
-See [ROADMAP.md](ROADMAP.md): production stack symbolization, pprof/OTLP export, BPF `sudog.elem` capture, full analyzer SCC/cascade, Kubernetes agent.
+See [ROADMAP.md](ROADMAP.md): ELF symbolization from `/proc` maps, BPF `sudog.elem` capture, OTLP-Profiles default export, live TUI, Kubernetes DaemonSet.

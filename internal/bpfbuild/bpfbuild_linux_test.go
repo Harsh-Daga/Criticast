@@ -32,13 +32,18 @@ func TestBPFObjectBuildsAndHasSymbols(t *testing.T) {
 	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err != nil {
 		t.Skip("BTF not available")
 	}
-	root := repoRoot(t)
+	// BPF compile + symbol check runs in the linux-bpf CI job (after ci-install-deps).
+	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("CRITICAST_BPF_GATE") != "1" {
+		t.Skip("BPF gate runs in linux-bpf CI job")
+	}
 	if _, err := exec.LookPath("clang"); err != nil {
 		t.Skip("clang not installed")
 	}
 
+	root := repoRoot(t)
 	cmd := exec.Command("make", "test-bpf")
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "BPFTOL=/usr/local/bin/bpftool")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("make test-bpf: %v\n%s", err, out)

@@ -5,7 +5,7 @@
 > Find the single wait that dominates your P99 — across threads, goroutines, and
 > async hops — with zero code changes, in under five minutes.
 
-- **Status:** Core collector and CLI implemented; see [docs/ROADMAP.md](docs/ROADMAP.md) for backlog.
+- **Status:** P0 gates passed; P1 plumbing (Tier-0/1 record/analyze/pprof) done; **P2 active** (Tier-2 + thesis validation). Public release deferred until charter-complete — [docs/PHASES.md](docs/PHASES.md).
 - **License:** Apache-2.0 (userspace) · GPLv2 (BPF object files).
 - **Lead name:** `criticast` · fallback `critipath`.
 - **Charter version:** v3. v3 supersedes v2's *forward cookie propagation* model

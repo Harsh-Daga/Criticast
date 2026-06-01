@@ -1,0 +1,3 @@
+{"version":1,"tgid":100,"min_block_ns":1000,"sample_mod":1,"started_utc":"2026-06-01T12:00:00Z","ktime_base_ns":0,"wall_base_utc":"2026-06-01T12:00:00Z"}
+{"TsNs":300,"Type":1,"Tgid":100,"Tid":101,"WakerTid":102,"BlockedNs":100,"StackID":-1,"WakerStackID":-1,"Cookie":1,"TaskID":10,"WakerTaskID":20,"WaitClass":4}
+{"TsNs":500,"Type":1,"Tgid":100,"Tid":102,"WakerTid":103,"BlockedNs":200,"StackID":-1,"WakerStackID":-1,"Cookie":1,"TaskID":20,"WakerTaskID":30,"WaitClass":4}

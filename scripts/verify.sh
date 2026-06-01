@@ -17,36 +17,4 @@ cd "$ROOT"
 
 export PATH="/usr/local/go/bin:${PATH:-}"
 
-echo "criticast verify — build/test gate"
-echo ""
-
-echo "=== go version ==="
-go version
-
-echo "=== preflight (Linux tools) ==="
-if [[ "$(uname -s)" == "Linux" ]]; then
-  ./scripts/check-linux-env.sh
-else
-  echo "skip (not Linux)"
-fi
-
-echo "=== make test ==="
-make test
-
-echo "=== go vet ==="
-go vet ./...
-
-echo "=== build workloads + criticast ==="
-make go workloads
-
-if [[ "$(uname -s)" == "Linux" && -f /sys/kernel/btf/vmlinux ]]; then
-  echo "=== make test-bpf (compile + symbol check) ==="
-  make test-bpf
-else
-  echo "=== make test-bpf ==="
-  echo "skip (no BTF on this host)"
-fi
-
-echo ""
-echo "verify: OK — codebase builds and tests pass."
-echo "Benchmarks: see docs/GETTING_STARTED.md — re-run after probe/attribution changes"
+exec "$(dirname "$0")/ci-verify.sh"
