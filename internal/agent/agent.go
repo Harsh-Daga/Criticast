@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -67,7 +68,14 @@ func (r *Recorder) StatsSnapshot() Stats {
 
 // Run drains until ctx is cancelled. Never blocks the kernel — drops if channel full.
 func (r *Recorder) Run(ctx context.Context) error {
-	defer r.reader.Close()
+	var closeOnce sync.Once
+	closeReader := func() { closeOnce.Do(func() { _ = r.reader.Close() }) }
+	defer closeReader()
+
+	go func() {
+		<-ctx.Done()
+		closeReader()
+	}()
 
 	for {
 		select {

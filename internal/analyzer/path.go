@@ -37,6 +37,14 @@ func LongestPath(edges []WaitEdge) CriticalPath {
 			inDeg[e.From] = 0
 		}
 	}
+	for from := range adj {
+		sort.Slice(adj[from], func(i, j int) bool {
+			if adj[from][i].to != adj[from][j].to {
+				return adj[from][i].to < adj[from][j].to
+			}
+			return adj[from][i].ew.Key < adj[from][j].ew.Key
+		})
+	}
 
 	// Kahn topological order.
 	var queue []NodeID
@@ -68,20 +76,13 @@ func LongestPath(edges []WaitEdge) CriticalPath {
 	for _, u := range order {
 		for _, ae := range adj[u] {
 			cand := dist[u] + ae.ew.BlockedNs
-			if cand >= dist[ae.to] {
+			if cand > dist[ae.to] || (cand == dist[ae.to] && tieBreakWaitEdge(ae.ew, pred[ae.to])) {
 				dist[ae.to] = cand
 				pred[ae.to] = ae.ew
 			}
 		}
 	}
-	var end NodeID
-	var maxW uint64
-	for n, w := range dist {
-		if w >= maxW {
-			maxW = w
-			end = n
-		}
-	}
+	end, maxW := maxDistNode(dist)
 	var path []PathEdge
 	seen := make(map[NodeID]struct{})
 	for {
@@ -133,14 +134,7 @@ func longestPathRelax(edges []WaitEdge) CriticalPath {
 			break
 		}
 	}
-	var end NodeID
-	var maxW uint64
-	for n, w := range best {
-		if w >= maxW {
-			maxW = w
-			end = n
-		}
-	}
+	end, maxW := maxDistNode(best)
 	var path []PathEdge
 	visited := make(map[NodeID]struct{})
 	for {
@@ -156,6 +150,34 @@ func longestPathRelax(edges []WaitEdge) CriticalPath {
 		end = e.From
 	}
 	return CriticalPath{Edges: path, PathWeight: maxW}
+}
+
+// tieBreakWaitEdge picks a deterministic predecessor on equal blocked_ns weight.
+func tieBreakWaitEdge(a, b WaitEdge) bool {
+	if b.Key == "" {
+		return true
+	}
+	if a.Key == "" {
+		return false
+	}
+	return a.Key < b.Key
+}
+
+func maxDistNode(dist map[NodeID]uint64) (NodeID, uint64) {
+	var nodes []NodeID
+	for n := range dist {
+		nodes = append(nodes, n)
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
+	var end NodeID
+	var maxW uint64
+	for _, n := range nodes {
+		if dist[n] >= maxW {
+			maxW = dist[n]
+			end = n
+		}
+	}
+	return end, maxW
 }
 
 // PathWeightInvariantOK checks path_weight ≈ wall within slack (golden tests).

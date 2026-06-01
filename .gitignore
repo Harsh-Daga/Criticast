@@ -5,6 +5,12 @@
 *.bpf.o
 *.skel.h
 **/bpf2go/
+bpf/vmlinux.h
+
+# CI / local bpftool source builds (never commit)
+libbpf-*/
+bpftool-src/
+/tmp/
 
 # Go
 /vendor/
@@ -14,6 +20,9 @@
 /results/phase0/*.raw
 *.criticast
 *.jsonl
+# Golden fixtures for CI (not local recordings)
+!testdata/traces/
+!testdata/traces/*.jsonl
 
 # IDE
 .idea/

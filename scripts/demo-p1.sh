@@ -3,12 +3,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$ROOT/scripts/lib/common.sh"
 cd "$ROOT"
-export PATH="/usr/local/go/bin:${PATH:-}"
+criticast_path
 
 TRACE="${TRACE:-/tmp/criticast-demo.criticast}"
 PPROF="${PPROF:-/tmp/criticast-demo.pb.gz}"
 DUR="${DUR:-10s}"
+PORT="${PORT:-8080}"
+TARGET_URL="${TARGET_URL:-http://127.0.0.1:${PORT}/}"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "demo-p1: requires Linux (BPF attach). On macOS, run analyzer-only:" >&2
@@ -19,20 +23,37 @@ fi
 
 make bpf go workloads
 
-if ! pgrep -nx httpgo >/dev/null 2>&1; then
-  echo "Starting httpgo on :8080..."
-  ./bin/httpgo &
-  sleep 1
-fi
-PID="$(pgrep -nx httpgo)"
-echo "Target httpgo tgid=$PID"
+PID="$(ensure_httpgo "$ROOT")"
+echo "Target httpgo tgid=$PID exe=$ROOT/bin/httpgo"
 
-echo "=== record ==="
-sudo -E env PATH="$PATH" ./bin/criticast record \
-  --pid "$PID" --dur "$DUR" \
-  --bpf-object bpf/collector.bpf.o \
-  --go-binary "/proc/$PID/exe" --go-version go1.22.0 \
+echo "=== record (with wrk load) ==="
+wrk -t2 -c20 -d"$DUR" "$TARGET_URL" >/tmp/demo-p1-wrk.txt 2>&1 &
+WRK_PID=$!
+trap 'kill "$WRK_PID" 2>/dev/null || true' EXIT
+
+RECORD_ARGS=(
+  --pid "$PID" --dur "$DUR"
+  --bpf-object bpf/collector.bpf.o
   --out "$TRACE"
+)
+if [[ "${GO_UPROBES:-1}" == "1" ]]; then
+  RECORD_ARGS+=(--go-binary "$ROOT/bin/httpgo" --go-version "${GO_VERSION:-go1.22.0}")
+fi
+
+criticast_sudo ./bin/criticast record "${RECORD_ARGS[@]}" 2>&1 | tee /tmp/demo-p1-record.log
+
+kill "$WRK_PID" 2>/dev/null || true
+trap - EXIT
+
+if ! grep -q 'bpf stats:.*emitted=[1-9]' /tmp/demo-p1-record.log; then
+  echo "demo-p1: FAIL — no BPF events" >&2
+  echo "--- record log ---" >&2
+  cat /tmp/demo-p1-record.log >&2
+  echo "--- wrk log ---" >&2
+  tail -20 /tmp/demo-p1-wrk.txt >&2 || true
+  echo "diagnose: ./scripts/sched-smoke.sh  (bpftrace sched activity for httpgo)" >&2
+  exit 1
+fi
 
 echo "=== analyze (text) ==="
 ./bin/criticast analyze "$TRACE" --top 10

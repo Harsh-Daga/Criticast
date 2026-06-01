@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/criticast/criticast/internal/event"
@@ -30,9 +29,14 @@ func TestAnalyzeOnV2Trace(t *testing.T) {
 }
 
 func TestAnalyzeGoldenV1(t *testing.T) {
-	_, self, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(self), "..", "..")
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "testdata", "traces", "golden_chain.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("golden trace missing (commit testdata/traces/golden_chain.jsonl): %v", err)
+	}
 	if err := runAnalyze([]string{path, "--format", "json"}); err != nil {
 		t.Fatal(err)
 	}

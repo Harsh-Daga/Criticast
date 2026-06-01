@@ -2,7 +2,6 @@ package export
 
 import (
 	"bytes"
-	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,6 +41,22 @@ func TestBuildPprofProfileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWritePprofGzipEmptyTrace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.pb.gz")
+	if err := WritePprof(path, PprofInput{}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := profile.Parse(f); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWritePprofGzip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.pb.gz")
@@ -58,12 +73,7 @@ func TestWritePprofGzip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer gz.Close()
-	if _, err := profile.Parse(gz); err != nil {
+	if _, err := profile.Parse(f); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -1,6 +1,8 @@
 module github.com/criticast/criticast
 
-go 1.24.0
+go 1.22
+
+toolchain go1.24.0
 
 require (
 	github.com/cilium/ebpf v0.16.0

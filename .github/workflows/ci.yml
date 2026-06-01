@@ -1,23 +1,98 @@
+# CI for all pull requests and pushes to the default branch.
+# Feature branches are validated via pull_request — no per-branch allowlist.
 name: CI
 
 on:
   push:
-    branches: [main, phase1/shippable-core]
-  pull_request:
     branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24.x"
+  BPFFTOOL_VERSION: "v7.5.0"
 
 jobs:
-  test:
+  go:
+    name: Go
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            go.work.sum
 
-      - name: Install BPF toolchain
-        run: sudo ./scripts/ci-install-deps.sh
+      - name: Go gate
+        run: ./scripts/ci-go.sh
 
-      - name: Verify
-        run: ./scripts/verify.sh
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: golangci-lint
+        run: ./scripts/ci-lint.sh
+
+  vuln:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  linux-bpf:
+    name: Linux BPF
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [go]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Cache bpftool (source-build fallback)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/bpftool-${{ env.BPFFTOOL_VERSION }}
+          key: bpftool-${{ env.BPFFTOOL_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: BPF gate
+        run: |
+          sudo env \
+            PATH="/usr/local/bin:/usr/local/go/bin:${PATH}" \
+            BPFFTOOL_CACHE_DIR="${{ runner.tool_cache }}/bpftool-${{ env.BPFFTOOL_VERSION }}" \
+            BPFFTOOL_VERSION="${{ env.BPFFTOOL_VERSION }}" \
+            ./scripts/ci-linux-bpf.sh

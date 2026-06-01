@@ -75,5 +75,7 @@ const (
 	StatShortFiltered
 	StatSampledOut
 	StatStackFail
+	StatSwitchSeen
+	StatTargetPrev
 	StatMax
 )

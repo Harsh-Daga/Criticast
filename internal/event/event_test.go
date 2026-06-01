@@ -12,7 +12,7 @@ func TestEventSizeMatchesKernel(t *testing.T) {
 }
 
 func TestStatIndices(t *testing.T) {
-	if StatMax != 8 {
-		t.Fatalf("StatMax=%d want 8", StatMax)
+	if StatMax != 10 {
+		t.Fatalf("StatMax=%d want 10", StatMax)
 	}
 }

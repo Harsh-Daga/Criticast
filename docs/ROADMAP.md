@@ -46,15 +46,31 @@ Published numbers: [results/README.md](../results/README.md).
 
 `bpf/collector.c` reads `last_sudog_elem` / `futex_uaddr` into `event.aux` but **does not write them yet**. Trace-joined E2 therefore falls back to waker-token heuristics (~78% chan precision). Closing this gap is the top BPF attribution task.
 
-## Phase 1 execution
+## Phase 1 — status
 
-Full agent/engineer brief: **[P1_IMPLEMENTATION_PROMPT.md](P1_IMPLEMENTATION_PROMPT.md)** (branch `phase1/shippable-core`).
+**Plumbing (Bar A): validated** on Linux 6.1 cloud — record/analyze/pprof, zero ringbuf drops under wrk ([results/p1-smoke.md](../results/p1-smoke.md)).
 
-## Next milestones
+**Thesis (Bar B): not validated** on live `httpgo` demo — unscoped longest path, all `WC_UNKNOWN`, idle/sentinel dominant waits. Mechanism precision remains on **P0 GT + eval**, not this trace.
 
-Ordered by dependency. Each should land with tests and an update to benchmark reports when behavior changes.
+See **[P1_COMPLETION.md](P1_COMPLETION.md)** (required reading before claiming “P1 proves Criticast”).
 
-### 1. Kernel refinement (L2)
+| P1 charter scope | Shipped |
+|------------------|---------|
+| End-to-end Tier-0/1 data path | Yes |
+| E3: no confident Tier-2 chan without `aux` | Yes (code; not exercised when class unknown) |
+| CI + golden tests | Yes |
+| Request-scoped critical path ≈ wall clock on live trace | **No** (Bar B) |
+| sudog.elem / real wait classes on live BPF | **No** (P2) |
+
+**Remaining:** merge P1 to `main` if needed; **all new work on `phase2/tier2-product`**.
+
+**Next work:** branch `phase2/tier2-product` · gate: `scripts/validate-bar-b.sh` (stub until P2 lands).
+
+## Next milestones (Phase 2 — active)
+
+Bar B acceptance and sprint registry live in this file and [PHASES.md](PHASES.md). Summary:
+
+### 1. Kernel refinement (L2) — P2 priority
 
 - [ ] Populate `last_sudog_elem` on Go channel block path (gopark / wait reason)
 - [ ] Optional `futex_uaddr` for mutex waits

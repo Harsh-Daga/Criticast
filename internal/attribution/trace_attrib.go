@@ -26,8 +26,9 @@ func MechanismFromWaitClass(wc event.WaitClass) string {
 	}
 }
 
-// AttributeTraceEdge applies E3 resource suppression and Tier-2 elem gating (P1).
+// AttributeTraceEdge applies E3 resource suppression and Tier-2 elem gating.
 // Never returns high confidence for chan without aux (sudog.elem).
+// P2: replace flat confidence=60 fallback with charter C.3.6 model (see CHARTER.md).
 func AttributeTraceEdge(wc event.WaitClass, aux uint64, cookie uint64) TraceEdgeMeta {
 	mech := MechanismFromWaitClass(wc)
 	meta := TraceEdgeMeta{Mechanism: mech, Confidence: 70, Ambiguous: false}

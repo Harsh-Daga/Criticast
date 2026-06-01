@@ -230,8 +230,11 @@ int handle_switch(u64 *ctx)
 	__u32 prev_state = (__u32)ctx[3];
 	__u64 now = bpf_ktime_get_ns();
 
+	inc_stat(STAT_SWITCH_SEEN);
+
 	__u32 prev_tgid = BPF_CORE_READ(prev, tgid);
 	if (targeted(prev_tgid)) {
+		inc_stat(STAT_TARGET_PREV);
 		struct wait_state *ws = bpf_task_storage_get(
 			&thread_state, prev, NULL,
 			BPF_LOCAL_STORAGE_GET_F_CREATE);

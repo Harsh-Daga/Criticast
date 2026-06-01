@@ -19,7 +19,7 @@ criticast complements OpenTelemetry, Grafana, and Pyroscope. It does not replace
 |-------------|--------|
 | Linux **5.8+** | BTF at `/sys/kernel/btf/vmlinux`, ringbuf, task storage |
 | **Capabilities** | `CAP_BPF` + `CAP_PERFMON` (not full root in docs/examples) |
-| **Toolchain** | `clang`, `llvm`, `bpftool`, `go` 1.22+ (export uses `toolchain go1.24` when needed) |
+| **Toolchain** | `clang`, `llvm`, `bpftool`, Go **1.22+** (module); CI uses **1.24.x** |
 | **Host** | Production eBPF requires Linux; macOS can build Go and run analyze/export on traces |
 
 ## 5-minute demo (Phase 1)
@@ -31,15 +31,8 @@ export PATH="/usr/local/go/bin:$PATH"
 make bpf go workloads
 ./scripts/verify.sh
 
-# Linux: full record → analyze → pprof
+# Linux: full record → analyze → pprof (starts bin/httpgo, runs wrk, checks bpf emitted > 0)
 ./scripts/demo-p1.sh
-
-# Or step by step:
-./bin/httpgo &
-sudo ./bin/criticast record --pid $(pgrep -nx httpgo) --dur 10s \
-  --bpf-object bpf/collector.bpf.o \
-  --go-binary "/proc/$(pgrep -nx httpgo)/exe" --go-version go1.22.0 \
-  --out /tmp/trace.criticast
 
 ./bin/criticast analyze /tmp/trace.criticast --top 10
 ./bin/criticast export /tmp/trace.criticast --pprof /tmp/criticast.pb.gz
@@ -64,17 +57,35 @@ sudo -E env PATH="$PATH" ./scripts/record-p0b.sh
 
 See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for setup, scripts, benchmarks, and troubleshooting.
 
+## Limitations (v0.1 / Phase 1)
+
+This release is **Tier-0/1** per [CHARTER.md](CHARTER.md): scheduler wait-for + lineage rules, not a full APM.
+
+| Topic | v0.1 behavior |
+|-------|----------------|
+| Wait classes | Often `WC_UNKNOWN` until BPF refinement (gopark/syscall/sudog) |
+| Channel Tier-2 | Ambiguous unless `event.aux` carries elem id — **no confident chan labels** without it |
+| pprof stacks | Wait **durations** are real; function names may show `unknown` (ELF symbolize planned) |
+| Scale | Single-process analyze; very large traces may need sharding (P2+) |
+| Deployment | `--pid` targeting; cgroup/k8s operator path is P2+ |
+
+Phase 1 status (plumbing vs thesis — read both): **[docs/P1_COMPLETION.md](docs/P1_COMPLETION.md)** · [results/p1-smoke.md](results/p1-smoke.md).
+
+`demo-p1.sh` validates the **data path** (Bar A). It does **not** prove request-scoped causal critical path (Bar B).
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [CHARTER.md](CHARTER.md) | Product and system design (source of truth) |
+| [docs/PHASES.md](docs/PHASES.md) | Phase map, ship policy, active branch |
+| [docs/P1_COMPLETION.md](docs/P1_COMPLETION.md) | P1 plumbing vs thesis validation |
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Build, run, validate, regress |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, data flow, invariants |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | What works today and what to build next |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PR workflow, licenses, tests |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Capabilities and engineering backlog |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PR workflow, licenses, release policy |
 | [AGENTS.md](AGENTS.md) | Engineering rules for contributors and LLMs |
-| [results/](results/README.md) | Published benchmark and attribution reports |
+| [results/](results/README.md) | Published benchmark reports |
 
 ## CLI
 
@@ -85,6 +96,7 @@ criticast analyze <trace> [--request 0x…|tid] [--top N] [--format text|json]
 criticast export <trace> --pprof out.pb.gz [--request 0x…|tid]
 criticast eval --gt-log <log> [--trace trace] [--mode e1-lineage|all]
 criticast go-smoke --pid <tgid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
+criticast probe-stats --pid <tgid> --dur 5s [--bpf-object bpf/collector.bpf.o]
 ```
 
 ## Repository layout

@@ -89,7 +89,7 @@ func writeAnalyzeText(w io.Writer, tf *trace.File, res *analyzer.Result, resolve
 	fmt.Fprintln(w)
 
 	if len(res.CriticalPath.Edges) > 0 {
-		fmt.Fprintf(w, "\nCRITICAL PATH (confidence ≥ %d):\n", res.CriticalPath.Edges[0].Meta.Confidence)
+		fmt.Fprintln(w, "\nCRITICAL PATH (longest blocked-ns wait chain; see confidence per edge):")
 		for _, pe := range res.CriticalPath.Edges {
 			writePathEdge(w, pe, resolver)
 		}

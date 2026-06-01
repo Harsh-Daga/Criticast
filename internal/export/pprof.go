@@ -2,7 +2,6 @@
 package export
 
 import (
-	"compress/gzip"
 	"fmt"
 	"os"
 
@@ -32,9 +31,8 @@ func WritePprof(path string, in PprofInput) error {
 		return err
 	}
 	defer f.Close()
-	gz := gzip.NewWriter(f)
-	defer gz.Close()
-	return p.Write(gz)
+	// profile.Write already emits gzip-compressed protobuf (do not wrap again).
+	return p.Write(f)
 }
 
 // BuildPprofProfile maps critical-path edges to pprof samples (value = blocked_ns).

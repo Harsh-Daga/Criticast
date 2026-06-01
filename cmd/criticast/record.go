@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,16 @@ func runRecord(args []string) error {
 	if *pid == 0 {
 		return fmt.Errorf("--pid is required")
 	}
+	tgid, err := resolveTGID(int(*pid))
+	if err != nil {
+		return err
+	}
+	if uint32(*pid) != tgid {
+		fmt.Fprintf(os.Stderr, "criticast: --pid %d is thread; using tgid=%d for BPF target map\n", *pid, tgid)
+	}
+	if comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", *pid)); err == nil {
+		fmt.Fprintf(os.Stderr, "criticast: target comm=%q tgid=%d\n", strings.TrimSpace(string(comm)), tgid)
+	}
 	if *chanCap <= 0 {
 		return fmt.Errorf("--event-chan must be > 0")
 	}
@@ -55,7 +66,7 @@ func runRecord(args []string) error {
 		SampleMod:  uint32(*sample),
 	}
 
-	coll, err := loader.Load(uint32(*pid), cfg, *bpfObj)
+	coll, err := loader.Load(tgid, cfg, *bpfObj)
 	if err != nil {
 		return err
 	}
@@ -107,9 +118,10 @@ func runRecord(args []string) error {
 		select {
 		case <-ctx.Done():
 			stop()
+			consumed, captured, wallBase, ktimeBase = drainEventCh(rec, consumed, captured, wallBase, ktimeBase, *outPath != "")
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
+				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
 					return err
 				}
 			}
@@ -119,9 +131,10 @@ func runRecord(args []string) error {
 			return ctx.Err()
 		case <-timer.C:
 			stop()
+			consumed, captured, wallBase, ktimeBase = drainEventCh(rec, consumed, captured, wallBase, ktimeBase, *outPath != "")
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
+				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
 					return err
 				}
 			}
@@ -140,16 +153,39 @@ func runRecord(args []string) error {
 				captured = append(captured, ev)
 			}
 		case err := <-errCh:
+			consumed, captured, wallBase, ktimeBase = drainEventCh(rec, consumed, captured, wallBase, ktimeBase, *outPath != "")
 			printSummary(coll, rec, consumed)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				return err
 			}
 			if *outPath != "" {
-				if werr := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); werr != nil {
+				if werr := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); werr != nil {
 					return werr
 				}
 			}
 			return nil
+		}
+	}
+}
+
+// drainEventCh reads remaining events after stop (non-blocking).
+func drainEventCh(rec *agent.Recorder, consumed uint64, captured []event.Event, wallBase time.Time, ktimeBase uint64, keep bool) (uint64, []event.Event, time.Time, uint64) {
+	for {
+		select {
+		case ev, ok := <-rec.Events():
+			if !ok {
+				return consumed, captured, wallBase, ktimeBase
+			}
+			consumed++
+			if keep {
+				if ktimeBase == 0 {
+					ktimeBase = ev.TsNs
+					wallBase = time.Now().UTC()
+				}
+				captured = append(captured, ev)
+			}
+		default:
+			return consumed, captured, wallBase, ktimeBase
 		}
 	}
 }
@@ -205,17 +241,18 @@ func drainRecorder(errCh <-chan error, rec *agent.Recorder, coll *loader.Collect
 
 func printSummary(coll *loader.Collector, rec *agent.Recorder, consumed uint64) {
 	us := rec.StatsSnapshot()
-	fmt.Printf("userspace: consumed=%d received=%d chan_drops=%d read_errors=%d malformed=%d\n",
+	fmt.Fprintf(os.Stderr, "userspace: consumed=%d received=%d chan_drops=%d read_errors=%d malformed=%d\n",
 		consumed, us.Received, us.ChanDrops, us.ReadErrors, us.Malformed)
 	if stats, err := coll.Stats(); err == nil {
 		printBPFStats(stats)
+		warnIfNoEvents(stats, us.Received, consumed)
 	} else {
 		fmt.Fprintf(os.Stderr, "criticast: bpf stats: %v\n", err)
 	}
 }
 
 func printBPFStats(stats [event.StatMax]uint64) {
-	fmt.Printf("bpf stats: ringbuf_drops=%d emitted=%d blocks=%d preempts=%d runq=%d short_filt=%d sampled_out=%d stack_fail=%d\n",
+	fmt.Fprintf(os.Stderr, "bpf stats: ringbuf_drops=%d emitted=%d blocks=%d preempts=%d runq=%d short_filt=%d sampled_out=%d stack_fail=%d switch_seen=%d target_prev=%d\n",
 		stats[event.StatRingbufDrops],
 		stats[event.StatEventsEmitted],
 		stats[event.StatBlocksSeen],
@@ -224,5 +261,17 @@ func printBPFStats(stats [event.StatMax]uint64) {
 		stats[event.StatShortFiltered],
 		stats[event.StatSampledOut],
 		stats[event.StatStackFail],
+		stats[event.StatSwitchSeen],
+		stats[event.StatTargetPrev],
 	)
+}
+
+func warnIfNoEvents(stats [event.StatMax]uint64, received, consumed uint64) {
+	emitted := stats[event.StatEventsEmitted]
+	if emitted == 0 && received == 0 && consumed == 0 {
+		fmt.Fprintln(os.Stderr, "criticast: no BPF events captured — common causes:")
+		fmt.Fprintln(os.Stderr, "  - wrong process (use bin/httpgo from this repo, not another binary named httpgo)")
+		fmt.Fprintln(os.Stderr, "  - no load during record (run wrk/curl against the target while recording)")
+		fmt.Fprintln(os.Stderr, "  - target idle with no scheduler activity in the window")
+	}
 }

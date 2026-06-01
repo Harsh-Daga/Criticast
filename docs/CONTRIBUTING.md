@@ -2,12 +2,18 @@
 
 Thanks for helping improve criticast. Read the charter for *why*; this page covers *how*.
 
+## Release policy
+
+**No public release until the charter-complete milestone** (minimum P0–P3 per [PHASES.md](PHASES.md)). P1 is internal plumbing only; P2 closes the product thesis (Bar B) but still does not GA.
+
 ## Before you open a PR
 
 1. [CHARTER.md](../CHARTER.md) — scope for your change
 2. [AGENTS.md](../AGENTS.md) — engineering rules and checklist
-3. `./scripts/verify.sh` — must pass on Linux with BTF for BPF changes
-4. [ROADMAP.md](ROADMAP.md) — confirm the change fits current milestones
+3. [PHASES.md](PHASES.md) — which phase/branch your work belongs on
+4. `./scripts/verify.sh` — must pass on Linux with BTF for BPF changes
+5. [ROADMAP.md](ROADMAP.md) — confirm the change fits current milestones
+6. P2 slices: `./scripts/validate-bar-b.sh` when touching attribution/BPF analyze path
 
 ## Licenses
 
@@ -50,8 +56,24 @@ When changing the hot path or attribution:
 
 Include host kernel, Go version, commit, and load parameters in the report.
 
-## CI (when wired)
+## CI
 
-- Kernel matrix: 5.8, 5.15, 6.1, 6.8, 6.12 — compile BPF
-- Go 1.21+; regenerate `offsets.json` when runtime struct layout changes
-- Attribution thresholds enforced in CI once baselines are frozen
+Runs on **every pull request** and on **pushes to `main`** (no per-feature-branch allowlist).
+
+| Job | What it checks |
+|-----|----------------|
+| **Go** | `go test`, `go vet`, build `criticast` + workloads |
+| **Lint** | `golangci-lint` (see `.golangci.yml`) |
+| **Vulnerability scan** | `govulncheck` |
+| **Linux BPF** | bpftrace/clang/bpftool, `make test-bpf`, env preflight |
+
+Local equivalents:
+
+```bash
+./scripts/ci-go.sh          # same as the Go job
+./scripts/ci-linux-bpf.sh   # Linux + sudo; same as BPF job
+./scripts/verify.sh         # ci-go + ci-linux-bpf on Linux
+make lint                   # requires golangci-lint installed
+```
+
+Future: kernel version matrix (5.15–6.12) for BPF compile-only jobs.

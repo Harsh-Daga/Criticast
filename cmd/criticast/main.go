@@ -26,6 +26,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
 			os.Exit(1)
 		}
+	case "probe-stats":
+		if err := runProbeStats(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
+			os.Exit(1)
+		}
 	case "analyze":
 		if err := runAnalyze(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "criticast: %v\n", err)
@@ -57,6 +62,7 @@ Usage:
   criticast export <trace> --pprof out.pb.gz [--request cookie|tid]
   criticast eval --gt-log <log> [--trace trace.criticast] [--mode e1-lineage|all]
   criticast go-smoke --pid <pid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
+  criticast probe-stats --pid <pid> --dur 5s  (sched BPF counters; run wrk while waiting)
 
 `)
 }

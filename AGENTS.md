@@ -2,7 +2,7 @@
 
 Instructions for humans and LLMs working in this repository. **`CHARTER.md` is the source of truth** for product and system design; this file translates it into day-to-day engineering rules.
 
-**Docs:** [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) (run/regress), [docs/ROADMAP.md](docs/ROADMAP.md) (backlog), [results/](results/README.md) (benchmarks).
+**Docs:** [docs/PHASES.md](docs/PHASES.md) (phase map + ship policy), [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) (run/regress), [docs/ROADMAP.md](docs/ROADMAP.md) (backlog + P2), [results/](results/README.md) (benchmarks).
 
 ## Before you write code
 
