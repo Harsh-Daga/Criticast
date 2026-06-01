@@ -42,6 +42,11 @@ stop_httpgo() {
   sleep 1
 }
 
+stop_p0b_server() {
+  pkill -x p0b-server 2>/dev/null || pkill -f '/bin/p0b-server' 2>/dev/null || true
+  sleep 1
+}
+
 # resolve_target_pid returns TGID for process name (or $PID if already set).
 resolve_target_pid() {
   local name="${1:-httpgo}"

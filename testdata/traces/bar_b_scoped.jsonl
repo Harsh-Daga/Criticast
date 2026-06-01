@@ -1,0 +1,5 @@
+{"magic":"CRTC","version":2,"endianness":"little","tgid":1,"min_block_ns":1000,"sample_mod":1,"started_utc":"2026-06-01T12:00:00Z","ktime_base_ns":1000000000,"wall_base_utc":"2026-06-01T12:00:00Z","struct_event_version":1}
+{"_section":"stacks","stacks":{"1":[4194304,4206592]}}
+{"TsNs":1100000000,"Type":1,"Tid":5,"WakerTid":6,"BlockedNs":2000000,"StackID":1,"WakerStackID":-1,"Cookie":4660,"TaskID":42,"WakerTaskID":99,"Aux":3735928559,"WaitClass":9,"PrevState":1}
+{"TsNs":1200000000,"Type":1,"Tid":6,"WakerTid":7,"BlockedNs":1500000,"StackID":-1,"WakerStackID":-1,"Cookie":4660,"TaskID":99,"WakerTaskID":100,"Aux":3735928559,"WaitClass":9,"PrevState":1}
+{"_section":"footer","userspace_received":2,"bpf_events_emitted":2,"bpf_ringbuf_drops":0}

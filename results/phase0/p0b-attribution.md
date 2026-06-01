@@ -1,108 +1,110 @@
 # Attribution benchmark report
 
-- **Date:** 2026-06-01 (E2 re-run); initial 2026-05-31
+- **Date:** 2026-06-02 (P2 trace-joined re-verify); 2026-06-01 (E2 GT harness); initial 2026-05-31
 - **Host:** `prod0-telephony-voipmonitor-primary` (Debian, kernel `6.1.0-40-cloud-amd64`, BTF OK)
-- **Go:** 1.22.10 (`/usr/local/go`)
+- **Go:** 1.24.0 (`/usr/local/go`) on P2 runs; 1.22.10 on earlier runs
 - **Load:** interleaved A/B/C — `CONN=8 THREADS=1 DURATION=30s` × 3 (`./scripts/load-p0b-interleaved.sh`)
-- **Artifacts:** `/tmp/p0b-gt.log`, `/tmp/p0b-trace.jsonl`, `/tmp/p0b-eval-e2.txt`
+- **Artifacts:** `/tmp/p0b-gt.log`, `/tmp/p0b-trace.criticast` (v2 trace)
 
-## Verdict
+## Verdict (2026-06-02, Phase 2)
 
-**PASS with tiering** — not a logic bug; the original **0.557 was E1 (lineage-only)**, which the charter already treats as insufficient for shared worker pools. **E2 (sudog-element matching) reaches 1.000** on the same interleaved A/B/C load once send/recv share an elem id.
+**PASS — mechanism gate** (trace-joined `chan-work-handoff` **0.995–1.000**, threshold ≥0.90). BPF emits `sudog.elem` via `gopark` → `event.aux`.
 
-| Gate | Threshold | E1 (lineage) | E2 (sudog elem) |
-|------|-----------|--------------|-----------------|
-| spawn-lineage | ≥90% | **PASS** 1.000 | **PASS** 1.000 |
-| chan-work-handoff | ≥90% | **FAIL** 0.548 | **PASS** 1.000 |
-| conn-pool / mutex | ≥90% | **PASS** 1.000 | **PASS** 1.000 |
-| broadcast / netpoll | in fixture | N/A | N/A |
-| E4 naive baseline | worse than E1 | **PASS** (0.000) | — |
+**Bar B literal** (scoped live `path≈wall`) is **open** — see [../p2-validation.md](../p2-validation.md#b2-live--scoped-request-on-real-capture-open) and `./scripts/bar-b-scoped-live.sh`.
 
-**Product default:** Tier-0/1 (lineage) everywhere; Tier-2 chan only when `sudog.elem` (or equivalent) is observed — otherwise `request-ambiguous`. Do not ship lineage-only as confident chan attribution.
+| Gate | Threshold | E1 (lineage) | E2 (GT sudog) | **Trace-joined (live BPF)** |
+|------|-----------|--------------|---------------|-----------------------------|
+| spawn-lineage | ≥90% | 1.000 | 1.000 | **1.000** |
+| chan-work-handoff | ≥90% | ~0.55 | 1.000 | **0.995–1.000** |
+| conn-pool | ≥90% | 1.000 | 1.000 | **1.000** |
+| mutex (GT-only) | ≥90% | 1.000 | 1.000 | trace-join sample often 0 edges |
+| ringbuf drops | 0 | — | — | **0** |
 
-**End-to-end caveat:** GT-only E2 passes; trace-joined E2 is **chan 0.783** because `bpf/collector.c` does not yet write `last_sudog_elem`/`futex_uaddr` — `e->aux` is always 0. See [Trace join](#trace-join--e2-end-to-end-2026-06-01) and [docs/ROADMAP.md](../../docs/ROADMAP.md) (BPF sudog capture).
+**Product rule (unchanged):** Tier-2 chan confidence only when `event.aux` (sudog.elem) is present; else `request-ambiguous`. Do not ship lineage-only as confident chan attribution.
 
-## E2 experiment (2026-06-01)
+Full P2 report: [../p2-validation.md](../p2-validation.md).
 
-Fixture emits per-item elem id at `worker-pool-send` / `worker-recv` / `worker-done`; harness passes `parseElem(se.Aux)` into `RunExperiment`.
+---
 
-GT log sample:
+## P2 live run — record + eval (2026-06-02)
 
-```text
-worker-pool-send ... "extra":"2"
-worker-done        ... "extra":"4591"
-```
+**Record:** `emitted=1412508`, `blocks=697589`, `stack_fail=218268` (~15%), `ringbuf_drops=0`.
 
-`criticast eval --gt-log /tmp/p0b-gt.log --mode all` (GT-only gate metric):
+**Eval (`--mode all`) — trace-joined:**
 
-| Mode | chan-work-handoff | spawn | pool | mutex | edges (chan) |
-|------|-------------------|-------|------|-------|--------------|
-| e1-lineage | 0.548 | 1.000 | 1.000 | 1.000 | 13773 |
-| **e2-sudog** | **1.000** | 1.000 | 1.000 | 1.000 | 13773 |
-| e3-suppress | 0.548 | 1.000 | 1.000 | 1.000 | 13773 |
-| e4-naive | 0.000 | 0.000 | 0.000 | 0.000 | 13773 |
+| Mechanism | Precision | Recall | Edges |
+|-----------|-----------|--------|-------|
+| spawn-lineage | 1.000 | 1.000 | 92407 |
+| chan-work-handoff | **0.995** | 0.995 | 13509 |
+| conn-pool | 1.000 | 1.000 | 231 |
 
-Record (30s, interleaved load): `emitted=53232`, `ringbuf_drops=0`, `chan_drops=0`.
+**Smaller prior capture (same host):** trace-joined chan **1.000** (1741 edges).
 
-## Prior run (2026-05-31, pre-E2 harness)
+---
 
-E2 was identical to E1 because `RunExperiment` passed `sudogElem=0`. Chan **0.557** on that run reflected **untested** sudog path, not a proven ceiling.
+## Historical — pre-BPF sudog (2026-06-01)
+
+Before `runtime.gopark` + `last_sudog_elem` in `bpf/collector.c`, trace-joined chan was **~0.783** (waker heuristic only). GT-only E2 was already **1.000**, proving attribution logic, not BPF transport.
+
+| Mode | chan-work-handoff | Notes |
+|------|-------------------|-------|
+| e1-lineage | 0.548 | GT replay only |
+| e2-sudog | 1.000 | elem in GT `extra` |
+| trace-joined (pre-P2 BPF) | 0.783 | `aux` not populated |
+
+That gap is **closed** as of P2 validation above.
+
+---
+
+## E2 experiment (2026-06-01, GT harness)
+
+Fixture emits per-item elem id at `worker-pool-send` / `worker-recv` / `worker-done`.
+
+`criticast eval --gt-log /tmp/p0b-gt.log --mode all` (GT-only):
+
+| Mode | chan-work-handoff | spawn | pool | mutex |
+|------|-------------------|-------|------|-------|
+| e1-lineage | 0.548 | 1.000 | 1.000 | 1.000 |
+| **e2-sudog** | **1.000** | 1.000 | 1.000 | 1.000 |
+| e3-suppress | 0.548 | 1.000 | 1.000 | 1.000 |
+| e4-naive | 0.000 | 0.000 | 0.000 | 0.000 |
+
+---
 
 ## Environment
 
 | Check | Result |
 |-------|--------|
 | `./scripts/verify.sh` | PASS |
-| `make bpf` (single TU) | PASS |
-| `link.AttachTracing` for `tp_btf/*` | PASS |
-| `casgstatus` + `offsets.json` go1.22.0 | PASS |
+| `make bpf` (`up_gopark`, sched) | PASS |
+| `validate-bar-b.sh` | PASS (2026-06-02) |
 | Trace clock join | PASS |
-| p0b map race (`cacheVal` under lock) | fixed |
-| E2 elem in GT + `NoteSudogElem` on send | PASS (2026-06-01) |
+| E2 elem in GT + BPF `aux` | PASS (P2) |
 
-## Trace join — E2 end-to-end (2026-06-01)
-
-`./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.jsonl --mode e2-sudog`
-
-`trace join: block_ends=26530 with_goid=24925 labeled=17058 clock_corr=true`
-
-| Mechanism | Precision | N edges |
-|-----------|-----------|---------|
-| spawn-lineage | 1.000 | 12701 |
-| chan-work-handoff | **0.783** | 4260 |
-| conn-pool | 1.000 | 97 |
-| mutex | — | 0 |
-
-**Why chan is 0.783 here but 1.000 GT-only:** the BPF path carries no sudog elem yet.
-`bpf/collector.c` sets `e->aux = futex_uaddr ? : last_sudog_elem`, but **neither field is
-ever written** in `bpf/` — so `ev.Aux == 0`, `te.SudogElem == 0`, and E2 falls back to the
-waker-token heuristic (`engine.go` E2 branch). 0.783 = waker fallback alone, **not** elem
-matching. This is the gate's known **Phase 1 task**, not a logic defect.
-
-So:
-- GT-only E2 1.0 → attribution **logic** correct given an elem key.
-- Trace-joined E2 0.783 → **BPF does not yet emit `sudog.elem`**; production chan stays
-  ambiguous until that probe lands.
+---
 
 ## Ship recommendation
 
-- Ship **wait-for graph + Tier-0/1** (scheduler edges, lineage spawn/pool/mutex).
-- Chan attribution: **logic validated** (GT-only 1.0); **not yet** production-ready end-to-end
-  (trace-joined 0.783) until BPF emits `sudog.elem`. Until then, label chan **`request-ambiguous`**.
-- **Next (chan Tier-2 end-to-end):** see [docs/ROADMAP.md](../../docs/ROADMAP.md) — BPF `last_sudog_elem`, sudog TTL, fixture coverage.
+- **P2 merge:** Supported on Linux with published numbers above.
+- **Public GA:** Not yet — [PHASES.md](../../docs/PHASES.md) requires P3+ (k8s, OTLP, operations).
+- **Chan on production apps:** Use Tier-2 only when `aux` nonzero; label ambiguous otherwise.
+- **Next:** P3 operations, `bench-p0a.sh` post-P2, reduce `stack_fail`, Tier-1 socket anchor.
+
+---
 
 ## Commands (reproduce)
 
 ```bash
 export PATH="/usr/local/go/bin:$PATH"
 cd /path/to/criticast
-make workloads
-# Terminal A
-./scripts/run-p0b.sh
-# Terminal C (during record)
-CONN=8 THREADS=1 DURATION=30s ./scripts/load-p0b-interleaved.sh
-# Terminal B
-sudo -E env PATH="$PATH" ./scripts/record-p0b.sh
-./bin/criticast eval --gt-log /tmp/p0b-gt.log --mode all 2>&1 | tee /tmp/p0b-eval-e2.txt
-grep -E '^(===|chan-work)' /tmp/p0b-eval-e2.txt
+make bpf go workloads
+
+./scripts/run-p0b.sh >>/tmp/p0b-gt.log 2>&1 &
+sleep 2 && curl -sf http://127.0.0.1:8080/health
+CONN=8 THREADS=1 DURATION=30s ./scripts/load-p0b-interleaved.sh &
+sleep 2
+OUT=/tmp/p0b-trace.criticast DUR=30s ./scripts/record-p0b.sh
+
+./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.criticast --mode all 2>&1 | tee /tmp/p0b-eval.log
+grep -A8 '^=== trace-joined ===' /tmp/p0b-eval.log
 ```

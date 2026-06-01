@@ -11,7 +11,7 @@ Read this before treating green CI or `demo-p1: OK` as proof of the Criticast th
 | Bar | Question it answers | Status (2026-06) |
 |-----|---------------------|------------------|
 | **A. Plumbing** | Can we capture sched wait-for events, store v2 trace, run analyze, export pprof without drops? | **Passed** on Linux 6.1 cloud ([results/p1-smoke.md](../results/p1-smoke.md)) |
-| **B. Thesis** | For a **scoped request**, does the critical path sum ≈ that request’s wall time and decompose into **meaningful** waits (not idle/park noise, not all `WC_UNKNOWN`)? | **Not tested** by `demo-p1` or default `analyze` |
+| **B. Thesis** | For a **scoped request** on a **live capture**, does critical path ≈ that request’s wall time with **labeled, non-idle** dominant waits? | **Open** — mechanism eval ✓; synthetic fixture ✓; live scoped analyze **not ticked** ([p2-validation](../results/p2-validation.md)) |
 
 Bar A is necessary. Bar A is **not sufficient** for the product claim in CHARTER §0 (“which wait dominated **this request**”). That is Bar B.
 
@@ -60,7 +60,7 @@ Honest reading of the same traces ([results/p1-smoke.md](../results/p1-smoke.md)
 ### 1. Tier-2 / mechanism layer not exercised
 
 - Every analyzed edge: **`WC_UNKNOWN`** at **`conf=60`**.
-- P0’s scientific win (chan-work-handoff **~1.0** with sudog elem on GT replay) does **not** appear — BPF still does not populate `sudog.elem` in `aux` on live paths ([ROADMAP.md](ROADMAP.md)).
+- P0’s scientific win on **httpgo demo** still does **not** appear — unscoped analyze remains `WC_UNKNOWN`-heavy. **p0b live trace** now populates `aux` (P2); see [p2-validation](../results/p2-validation.md).
 - E3 rules (mutex/pool/chan-without-elem) are implemented but **inactive** when class is unknown and `aux=0`.
 
 ### 2. `conf=60` is not a measured score
@@ -84,19 +84,36 @@ Top buckets include **`task_id=1 → task_id=1`** (large self-loop), **M↔idle 
 
 ---
 
-## Bar B — thesis validation (not done; concrete acceptance test)
+## Bar B — thesis validation
 
-When we claim Criticast measures **this request**, one trace must show:
+### Mechanism gate on p0b live trace — **done with P2** (2026-06-02)
 
-1. **Scope:** `--request <cookie|tid>` for a known-slow request (or injected token), not “all requests.”
-2. **Exclude:** idle/park/runq-only edges from path **candidates** (or scope so they cannot dominate).
-3. **Decompose:** at least one edge with a **real** wait class (or Tier-2 mech + `aux`) — not all `WC_UNKNOWN`.
-4. **Sum:** critical-path weight **≈** that request’s measured wall-clock latency (order-of-magnitude, charter E invariant).
-5. **Compare:** optional Jaccard vs GT critical path on adversarial fixture (≥0.7 before marketing “the” critical path).
+On `prod0-telephony-voipmonitor-primary`, interleaved A/B/C + `record-p0b.sh`:
 
-Until that passes on a live or GT-linked trace, status is:
+- **trace-joined** `chan-work-handoff` **0.995–1.000** (≥0.90 mechanism gate)
+- `labeled/block_ends` ≈ **15%** at join — most blocking not GT-labeled for scoped path
+- `ringbuf_drops=0`
+- Details: [results/p2-validation.md](../results/p2-validation.md)
 
-> **Skeleton works on real metal; the part that is not offwaketime has not run yet.**
+This validates **sudog/channel handoff on real BPF data**. It does **not** tick the Bar B sentence (scoped `analyze`, path≈wall on that request).
+
+### Bar B literal on live p0b — **open**
+
+Missing artifact: `./scripts/bar-b-scoped-live.sh A` on `/tmp/p0b-trace.criticast` (scope by handler **goid** from GT; BPF cookies are usually 0).
+
+Also open: **tail workload** (injected slow path) so “critical path explains the slow request” is testable; uniform ~14.7ms traffic only tests arithmetic.
+
+### Generic `httpgo` demo — **not done**
+
+`demo-p1.sh` still shows process-wide `WC_UNKNOWN` dominance and ambiguous path weight. Until request-scoped analyze on a non-GT workload passes items below, do not claim Bar B for arbitrary services.
+
+When we claim Criticast measures **this request** on an arbitrary app, one trace must show:
+
+1. **Scope:** `--request <cookie|tid>` for a known-slow request, not “all requests.”
+2. **Exclude:** idle/park/runq-only edges from path **candidates**.
+3. **Decompose:** real wait class or Tier-2 mech + `aux` on the path.
+4. **Sum:** path weight **≈** request wall clock (charter E invariant).
+5. **Compare:** optional Jaccard vs GT (≥0.7) where GT exists.
 
 ---
 
@@ -110,23 +127,36 @@ Until that passes on a live or GT-linked trace, status is:
 - [x] E3 code + tests (chan without `aux` not high-confidence)
 - [ ] PR merge / optional `v0.1.0` tag
 
-### Thesis (product) — not done on live demo
+### Thesis (product) — mechanism done; Bar B literal open
 
-- [ ] Request-scoped critical path with weight ≈ wall clock
-- [ ] Non–`WC_UNKNOWN` edges on that path (BPF refinement or Tier-1 spans)
-- [ ] Dominant waits free of idle/sentinel garbage at top
-- [ ] Stable path under go-uprobe on/off for same scoped request
-- [ ] Actionable pprof (symbols) or explicit “duration-only” UX
+- [x] Mechanism gate (p0b trace-joined chan ≥0.90) — P2
+- [x] BPF `sudog.elem` → `aux` on live trace
+- [x] Offline scoped fixture (`bar_b_scoped.jsonl`) — synthetic only
+- [ ] **Bar B literal:** `bar-b-scoped-live.sh` path≈wall on live trace
+- [ ] p0b tail / slow-request injection
+- [ ] Request-scoped path on **generic** httpgo with weight ≈ wall clock
+- [ ] Non–`WC_UNKNOWN` dominant waits on unscoped production-shaped trace
+- [ ] Stable scoped path under go-uprobe on/off (httpgo)
+- [ ] Actionable pprof on live record without manual `--go-binary` (UX)
 
 ---
 
 ## Code quality (proportionate claim)
 
-**Fair for v0.1 plumbing:** layer split, BPF filter order, drop stats, lineage-safe analyze rules, tests, CI, operator scripts.
+**Fair after P2 (internal / merge-ready):** charter layer split; BPF filter-before-reserve; drop stats; lineage-first L3; path policy + cascade; ELF symbolize (Linux); Go gopark Tier-2; golden tests + `validate-bar-b`; CI gates; operator scripts.
 
-**Not fair to claim “production-grade causal profiler” yet:** no request-scoped path policy, placeholder confidence, no idle filter, partial stacks, no ELF symbolize, single-threaded analyze at scale.
+**Not fair to claim “large-scale OSS production GA” yet:**
 
-See [ROADMAP.md](ROADMAP.md) for P2 work: `sudog.elem`, wait-class probes, symbolize, cgroup, path policy.
+| Area | Status |
+|------|--------|
+| k8s / OTLP / TUI | P3 |
+| Sharded analyze (1M+ events) | Not built |
+| Post-P2 overhead proof | Re-run `bench-p0a.sh` |
+| `stack_fail` ~15% | Known gap |
+| Security audit / fuzz / SBOM | Not done |
+| Tier-1 socket cookie anchor | P3 stretch |
+
+See [ROADMAP.md](ROADMAP.md) P3+ and [results/p2-validation.md](../results/p2-validation.md) § Production readiness.
 
 ---
 
@@ -144,5 +174,5 @@ Phase 0 attribution matrix (mechanism logic, not live chan elem):
 
 ```bash
 ./scripts/record-p0b.sh
-./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.jsonl --mode all
+./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.criticast --mode all
 ```

@@ -16,6 +16,7 @@ import (
 )
 
 // DefaultEventChanCap is the bounded channel size for ringbuf → userspace drain.
+// When full, events are dropped and ChanDrops is incremented (never blocks the kernel).
 const DefaultEventChanCap = 4096
 
 // Stats tracks userspace-side drops and events received.

@@ -91,6 +91,7 @@ enum stat_idx {
 	STAT_STACK_FAIL,
 	STAT_SWITCH_SEEN,   /* any sched_switch (debug: prog running) */
 	STAT_TARGET_PREV,   /* sched_switch where prev is in targets map */
+	STAT_RUNNING_EMITTED,
 	STAT_MAX,
 };
 

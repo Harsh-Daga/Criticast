@@ -14,8 +14,9 @@ const (
 	// LatestVersion is the format written by record.
 	LatestVersion = Version2
 
-	sectionStacks = "stacks"
-	sectionFooter = "footer"
+	sectionStacks  = "stacks"
+	sectionModules = "modules"
+	sectionFooter  = "footer"
 )
 
 // V2Header is the first line of a v2 trace (charter Appendix P).
@@ -30,12 +31,27 @@ type V2Header struct {
 	KtimeBaseNs        uint64 `json:"ktime_base_ns,omitempty"`
 	WallBaseUTC        string `json:"wall_base_utc,omitempty"`
 	StructEventVersion int    `json:"struct_event_version"`
+	TargetBinary       string `json:"target_binary,omitempty"`
 }
 
 // StacksSection maps BPF stack_id to program counters (deduped).
 type StacksSection struct {
 	Section string             `json:"_section"`
 	Stacks  map[int32][]uint64 `json:"stacks"`
+}
+
+// ModulesSection stores /proc/pid/maps executable regions captured at record.
+type ModulesSection struct {
+	Section string `json:"_section"`
+	Modules []Module `json:"modules"`
+}
+
+// Module is one executable mapping (mirrors symbolize.Module JSON).
+type Module struct {
+	Path    string `json:"path"`
+	Start   uint64 `json:"start"`
+	End     uint64 `json:"end"`
+	BuildID string `json:"build_id,omitempty"`
 }
 
 // Footer holds userspace and BPF summary counters at end of trace.
@@ -76,7 +92,8 @@ func headerFromV2(h V2Header) Header {
 		SampleMod:   h.SampleMod,
 		Started:     h.StartedUTC,
 		KtimeBaseNs: h.KtimeBaseNs,
-		WallBaseUTC: h.WallBaseUTC,
+		WallBaseUTC:  h.WallBaseUTC,
+		TargetBinary: h.TargetBinary,
 	}
 }
 

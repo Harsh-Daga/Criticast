@@ -1,11 +1,21 @@
 {
   "schema": 1,
+  "go1.24.0": {
+    "g.goid": { "amd64": 152, "arm64": 152 },
+    "g.parentGoid": { "amd64": 280, "arm64": 280 },
+    "g.waiting": { "amd64": 192, "arm64": 192 },
+    "sudog.elem": { "amd64": 0, "arm64": 0 }
+  },
   "go1.22.0": {
     "g.goid": { "amd64": 152, "arm64": 152 },
-    "g.parentGoid": { "amd64": 280, "arm64": 280 }
+    "g.parentGoid": { "amd64": 280, "arm64": 280 },
+    "g.waiting": { "amd64": 192, "arm64": 192 },
+    "sudog.elem": { "amd64": 0, "arm64": 0 }
   },
   "go1.21.0": {
     "g.goid": { "amd64": 152, "arm64": 152 },
-    "g.parentGoid": { "amd64": 280, "arm64": 280 }
+    "g.parentGoid": { "amd64": 280, "arm64": 280 },
+    "g.waiting": { "amd64": 192, "arm64": 192 },
+    "sudog.elem": { "amd64": 0, "arm64": 0 }
   }
 }

@@ -23,8 +23,9 @@ type bpfConfig struct {
 
 // goCfgMapVal mirrors struct go_cfg in bpf/go_cfg.h.
 type goCfgMapVal struct {
-	GoidOff uint32
-	Pad     uint32
+	GoidOff      uint32
+	WaitingOff   uint32
+	SudogElemOff uint32
 }
 
 type bpfObjects struct {
@@ -37,6 +38,7 @@ type bpfObjects struct {
 	HandleSwitch *ebpf.Program `ebpf:"handle_switch"`
 	HandleWaking *ebpf.Program `ebpf:"handle_waking"`
 	UpCasgstatus *ebpf.Program `ebpf:"up_casgstatus"`
+	UpGopark     *ebpf.Program `ebpf:"up_gopark"`
 }
 
 // Collector holds loaded BPF objects and tracepoint links.
@@ -44,7 +46,7 @@ type Collector struct {
 	objs    bpfObjects
 	switchL link.Link
 	wakingL link.Link
-	goLink  link.Link
+	goLinks []link.Link
 }
 
 // Load attaches sched probes from a compiled BPF object (default bpf/collector.bpf.o).
@@ -130,6 +132,9 @@ func (o *bpfObjects) close() error {
 	if o.UpCasgstatus != nil {
 		errs = append(errs, o.UpCasgstatus.Close())
 	}
+	if o.UpGopark != nil {
+		errs = append(errs, o.UpGopark.Close())
+	}
 	return errors.Join(errs...)
 }
 
@@ -162,8 +167,10 @@ func (c *Collector) Close() error {
 	if c.wakingL != nil {
 		errs = append(errs, c.wakingL.Close())
 	}
-	if c.goLink != nil {
-		errs = append(errs, c.goLink.Close())
+	for _, l := range c.goLinks {
+		if l != nil {
+			errs = append(errs, l.Close())
+		}
 	}
 	errs = append(errs, c.objs.close())
 	return errors.Join(errs...)

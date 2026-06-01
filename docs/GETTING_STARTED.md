@@ -39,7 +39,10 @@ make bpf go workloads    # bpf/collector.bpf.o + bin/criticast, httpgo, p0b-serv
 | `demo-p1.sh` | Phase 1 E2E: httpgo + wrk + record + analyze + pprof |
 | `sched-smoke.sh` | bpftrace sched_switch count for `httpgo` |
 | `ci-lint.sh` | golangci-lint (same toolchain as module) |
-| `validate-bar-b.sh` | Phase 2 thesis gate (stub until P2 implemented) |
+| `validate-bar-b.sh` | P2 gates: offline fixture + mechanism eval + optional `bar-b-scoped-live.sh` |
+| `bar-b-scoped-live.sh` | Bar B literal: one token on live p0b trace vs GT handler wall time |
+| `bar-b-scoped-batch.sh` | Bar B batch: tokens A/B/C pass rate |
+| `linux-validate-p2.sh` | Full P2 validation script (build, test, Bar B, fixtures) |
 | `check-linux-env.sh` | Tool and BTF preflight |
 | `debian-setup.sh` / `install-go.sh` | Host setup |
 | `spike.sh` | bpftrace wake-rate check (`make spike`) |
@@ -100,7 +103,8 @@ Critical-path analysis (Tier-0/1): wait-for graph, SCC collapse, longest blocked
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--request` | (none) | Scope by cookie (`0x…`) or tid (decimal) |
+| `--request` | (none) | Scope by cookie (`0x…`), tid, goid (`goid=N`), or token (`token=A` + `--gt-log`) |
+| `--gt-log` | (none) | Ground-truth log for `token=` scope on live p0b traces |
 | `--top` | `10` | Dominant waits when not scoped |
 | `--format` | `text` | `text` or `json` |
 | `--min-confidence` | `0` | Hide sub-threshold edges from critical path (still listed as ambiguous) |
@@ -159,7 +163,10 @@ Ground-truth lines use the prefix `CRITICAST_GT` (JSON: token, site, goid, optio
 | A | `./scripts/run-p0b.sh` |
 | C | `CONN=8 THREADS=1 DURATION=30s ./scripts/load-p0b-interleaved.sh` |
 | B | `sudo -E env PATH="$PATH" ./scripts/record-p0b.sh` |
-| B | `./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.jsonl --mode all` |
+| B | `OUT=/tmp/p0b-trace.criticast DUR=30s ./scripts/record-p0b.sh` |
+| B | `./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.criticast --mode all` |
+
+Single-terminal variant: background `run-p0b.sh` and load; see [results/p2-validation.md](../results/p2-validation.md).
 
 Modes: `e1-lineage`, `e2-sudog`, `e3-suppress`, `e4-naive`, or `all`. See [ROADMAP.md](ROADMAP.md) for how to interpret E1 vs E2 on channel handoff.
 

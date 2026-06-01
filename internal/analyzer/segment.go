@@ -43,7 +43,7 @@ func taskKeyFromEvent(ev event.Event) TaskKey {
 	return TaskKey{Tid: ev.Tid}
 }
 
-// BuildSegments folds events into per-task segments (skeleton: block-end + runq).
+// BuildSegments folds events into per-task segments (block-end, runq, measured running).
 func BuildSegments(events []event.Event) map[TaskKey][]Segment {
 	byTask := make(map[TaskKey][]event.Event)
 	for _, ev := range events {
@@ -99,6 +99,19 @@ func segmentsForTask(k TaskKey, evs []event.Event) []Segment {
 				Tid:       ev.Tid,
 				TaskID:    k.TaskID,
 			})
+		case event.EVTaskState:
+			if ev.BlockedNs == 0 {
+				continue
+			}
+			start := ev.TsNs - ev.BlockedNs
+			segs = append(segs, Segment{
+				Start:  start,
+				End:    ev.TsNs,
+				Kind:   Running,
+				Tgid:   ev.Tgid,
+				Tid:    ev.Tid,
+				TaskID: k.TaskID,
+			})
 		}
 	}
 	return segs
@@ -124,6 +137,8 @@ func SummarizeSegments(byTask map[TaskKey][]Segment) Summary {
 				s.TotalBlockedNs += seg.End - seg.Start
 			case Runnable:
 				s.RunnableSegs++
+			case Running:
+				// counted in TotalBlockedNs only for Blocked; running tracked via segments
 			}
 		}
 	}

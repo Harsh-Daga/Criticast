@@ -152,11 +152,30 @@ func (s *service) spawnWork(ctx context.Context, token string) string {
 	return "spawn:" + token
 }
 
+func workerSlowdown(workerID int, token string) time.Duration {
+	const base = 2 * time.Millisecond
+	// Falsification (docs/p2-bar-b-falsification.md): slow one token on one worker only.
+	want := os.Getenv("P0B_WORKER_SLOW_TOKEN")
+	if want == "" || token != want {
+		return base
+	}
+	if only := os.Getenv("P0B_SLOW_WORKER_ID"); only != "" {
+		if id, err := strconv.Atoi(only); err == nil && workerID != id {
+			return base
+		}
+	}
+	ns, err := strconv.ParseInt(envOr("P0B_WORKER_SLOW_NS", "8000000"), 10, 64)
+	if err != nil || ns <= 0 {
+		return 8 * time.Millisecond
+	}
+	return time.Duration(ns)
+}
+
 func (s *service) worker(id int) {
 	for item := range s.workCh {
 		elem := strconv.FormatUint(item.id, 10)
 		logG(item.token, groundtruth.SiteWorkerRecv, "worker", elem)
-		time.Sleep(2 * time.Millisecond)
+		time.Sleep(workerSlowdown(id, item.token))
 		item.resp <- fmt.Sprintf("worker%d:%s", id, item.token)
 		logG(item.token, groundtruth.SiteWorkerDone, "worker", elem)
 	}

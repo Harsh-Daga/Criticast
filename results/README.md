@@ -4,23 +4,24 @@ Committed measurement reports from Linux validation runs. Re-run procedures: [do
 
 | Report | What it measures |
 |--------|------------------|
-| [phase0/p0a-overhead.md](phase0/p0a-overhead.md) | Probe overhead (throughput, wake rate, ringbuf drops) |
-| [phase0/p0b-attribution.md](phase0/p0b-attribution.md) | Per-mechanism attribution precision (E1–E4) |
+| [STATUS.md](STATUS.md) | **One-page scorecard** (Bar A / mechanism / Bar B / overhead) |
+| [phase0/p0a-overhead.md](phase0/p0a-overhead.md) | Probe overhead — full/min-block/sampled (2026-06-02 prod0) |
+| [phase0/p0b-attribution.md](phase0/p0b-attribution.md) | Per-mechanism attribution (E1–E4, trace-joined) |
 | [p1-smoke.md](p1-smoke.md) | Phase 1 plumbing (Bar A) on Linux 6.1 cloud |
-| [p2-validation.md](p2-validation.md) | Phase 2 thesis gate template (Bar B) — fill when P2 done |
+| [p2-validation.md](p2-validation.md) | Phase 2 validation detail |
 
-## Summary (reference host, 2026-06)
+## Summary (prod0, 2026-06-02)
 
 | Measurement | Result |
 |-------------|--------|
-| Overhead (full mode) | ~−0.9% median throughput; 0 ringbuf drops |
-| spawn / pool / mutex (E1) | 1.0 precision |
-| chan handoff (E1 lineage) | ~0.55 — expected for shared worker pool |
-| chan handoff (E2 sudog, GT replay) | 1.0 — logic validated with elem id |
-| chan handoff (E2, trace-joined) | ~0.78 — pending BPF `sudog.elem` capture |
+| P2 trace-joined chan | **1.000** |
+| Bar B literal (live) | **1/3** (C pass; A/B ~67× — bounding fix shipped, re-validate) |
+| Overhead full @ 12.5k rps | **−0.93%**, 0 drops — [p0a-overhead](phase0/p0a-overhead.md) |
+| min-block | −1.31% + tail — not recommended |
+| sampled | **invalid run** — re-run isolated |
+| Live record | ~1.5M events, **0** ringbuf drops |
+| P1 E2E (`demo-p1`) | Bar A only |
 
-| P1 E2E (demo-p1, 2026-06) | 122k events, 0 ringbuf drops, valid pprof on cloud kernel 6.1 |
-
-Interpretation and backlog: [docs/ROADMAP.md](../docs/ROADMAP.md) · Phase 1 sign-off: [docs/P1_COMPLETION.md](../docs/P1_COMPLETION.md).
+Interpretation: [docs/ROADMAP.md](../docs/ROADMAP.md) · Phases: [docs/PHASES.md](../docs/PHASES.md) · P1 sign-off: [docs/P1_COMPLETION.md](../docs/P1_COMPLETION.md).
 
 Local artifacts (not committed): `results/phase0/spike-*.log`, `/tmp/p0a-*.txt`, `/tmp/p0b-*`.

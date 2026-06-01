@@ -26,31 +26,63 @@ func MechanismFromWaitClass(wc event.WaitClass) string {
 	}
 }
 
-// AttributeTraceEdge applies E3 resource suppression and Tier-2 elem gating.
+// AttributeTraceEdge applies charter C.3.6 confidence tiers (E3 suppress + Tier-2 elem gating).
 // Never returns high confidence for chan without aux (sudog.elem).
-// P2: replace flat confidence=60 fallback with charter C.3.6 model (see CHARTER.md).
 func AttributeTraceEdge(wc event.WaitClass, aux uint64, cookie uint64) TraceEdgeMeta {
 	mech := MechanismFromWaitClass(wc)
-	meta := TraceEdgeMeta{Mechanism: mech, Confidence: 70, Ambiguous: false}
+	meta := TraceEdgeMeta{Mechanism: mech, Confidence: baseConfidence(wc), Ambiguous: false}
 
 	if IsResourceMechanism(mech) {
 		meta.Ambiguous = true
-		meta.Confidence = 50
+		meta.Confidence = capConfidence(meta.Confidence, 45)
 		return meta
 	}
-	if wc == event.WCChan {
+
+	switch wc {
+	case event.WCChan:
 		if aux == 0 {
 			meta.Ambiguous = true
-			meta.Confidence = 45
+			meta.Confidence = 35
 			return meta
 		}
-		meta.Confidence = 75
+		meta.Confidence = 82
 		return meta
+	case event.WCUnknown:
+		meta.Ambiguous = true
+		meta.Confidence = capConfidence(meta.Confidence, 35)
+	case event.WCRunQ:
+		meta.Confidence = capConfidence(meta.Confidence, 50)
+	default:
+		if cookie != 0 {
+			meta.Confidence = boostConfidence(meta.Confidence, 12)
+		}
 	}
-	if cookie != 0 {
-		meta.Confidence = 85
-		return meta
-	}
-	meta.Confidence = 60
 	return meta
+}
+
+func baseConfidence(wc event.WaitClass) uint8 {
+	switch wc {
+	case event.WCNet, event.WCDisk, event.WCEpoll:
+		return 68
+	case event.WCChan, event.WCMutex:
+		return 60
+	case event.WCRunQ:
+		return 48
+	default:
+		return 55
+	}
+}
+
+func boostConfidence(c uint8, delta uint8) uint8 {
+	if int(c)+int(delta) > 95 {
+		return 95
+	}
+	return c + delta
+}
+
+func capConfidence(c, max uint8) uint8 {
+	if c > max {
+		return max
+	}
+	return c
 }

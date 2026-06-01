@@ -24,8 +24,9 @@ func runRecord(args []string) error {
 	durStr := fs.String("dur", "10s", "recording duration (30s, 5m, or plain seconds)")
 	minBlock := fs.String("min-block", "1us", "minimum blocked duration to emit (1us|50us)")
 	sample := fs.Uint("sample", 1, "emit 1/N blocks via random sampling")
+	emitRunning := fs.Bool("emit-running", false, "emit EV_TASK_STATE RUNNING segments (diagnostics; increases event volume)")
 	bpfObj := fs.String("bpf-object", "", "path to collector.bpf.o")
-	outPath := fs.String("out", "", "write trace file (JSONL)")
+	outPath := fs.String("out", "", "write trace file (.criticast v2, or v1 .jsonl)")
 	chanCap := fs.Int("event-chan", agent.DefaultEventChanCap, "bounded channel capacity for events")
 	goBinary := fs.String("go-binary", "", "attach casgstatus uprobes to this executable")
 	goVersion := fs.String("go-version", "go1.22.0", "Go version for bpf/offsets.json")
@@ -61,9 +62,11 @@ func runRecord(args []string) error {
 		return fmt.Errorf("--dur: %w", err)
 	}
 
-	cfg := loader.Config{
-		MinBlockNs: minNs,
-		SampleMod:  uint32(*sample),
+	cfg := loader.DefaultConfig()
+	cfg.MinBlockNs = minNs
+	cfg.SampleMod = uint32(*sample)
+	if *emitRunning {
+		cfg.Flags |= loader.CfgEmitRunning
 	}
 
 	coll, err := loader.Load(tgid, cfg, *bpfObj)
@@ -85,11 +88,18 @@ func runRecord(args []string) error {
 		if err != nil {
 			return err
 		}
-		off, err := db.GoidOffset(*goVersion)
+		resolved, err := db.ResolveGoVersion(*goVersion)
 		if err != nil {
 			return err
 		}
-		if err := coll.AttachGoUprobes(*goBinary, off); err != nil {
+		if resolved != *goVersion {
+			fmt.Fprintf(os.Stderr, "criticast: offsets: using %s for requested %s\n", resolved, *goVersion)
+		}
+		probeOff, err := db.ProbeOffsets(resolved)
+		if err != nil {
+			return err
+		}
+		if err := coll.AttachGoUprobes(*goBinary, loader.GoProbeOffsets(probeOff)); err != nil {
 			return fmt.Errorf("go uprobes: %w", err)
 		}
 	}
@@ -121,7 +131,7 @@ func runRecord(args []string) error {
 			consumed, captured, wallBase, ktimeBase = drainEventCh(rec, consumed, captured, wallBase, ktimeBase, *outPath != "")
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
+				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec, *goBinary); err != nil {
 					return err
 				}
 			}
@@ -134,7 +144,7 @@ func runRecord(args []string) error {
 			consumed, captured, wallBase, ktimeBase = drainEventCh(rec, consumed, captured, wallBase, ktimeBase, *outPath != "")
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
+				if err := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec, *goBinary); err != nil {
 					return err
 				}
 			}
@@ -159,7 +169,7 @@ func runRecord(args []string) error {
 				return err
 			}
 			if *outPath != "" {
-				if werr := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); werr != nil {
+				if werr := writeTrace(*outPath, tgid, minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec, *goBinary); werr != nil {
 					return werr
 				}
 			}
@@ -190,23 +200,27 @@ func drainEventCh(rec *agent.Recorder, consumed uint64, captured []event.Event, 
 	}
 }
 
-func writeTrace(path string, tgid uint32, minBlock uint64, sample uint32, wallBase time.Time, ktimeBase uint64, events []event.Event, coll *loader.Collector, rec *agent.Recorder) error {
+func writeTrace(path string, tgid uint32, minBlock uint64, sample uint32, wallBase time.Time, ktimeBase uint64, events []event.Event, coll *loader.Collector, rec *agent.Recorder, targetBinary string) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	hdr := trace.Header{
-		Tgid:      tgid,
-		MinBlock:  minBlock,
-		SampleMod: sample,
+		Tgid:         tgid,
+		MinBlock:     minBlock,
+		SampleMod:    sample,
+		TargetBinary: targetBinary,
 	}
 	if ktimeBase != 0 && !wallBase.IsZero() {
 		hdr.KtimeBaseNs = ktimeBase
 		hdr.WallBaseUTC = wallBase.Format(time.RFC3339Nano)
 		hdr.Started = hdr.WallBaseUTC
 	}
-	opts := &trace.WriteOptions{Stacks: map[int32][]uint64{}}
+	opts := &trace.WriteOptions{
+		Stacks:  map[int32][]uint64{},
+		Modules: captureTraceModules(tgid, targetBinary),
+	}
 	us := rec.StatsSnapshot()
 	opts.Footer = &trace.Footer{
 		UserspaceReceived:   us.Received,
@@ -240,6 +254,7 @@ func drainRecorder(errCh <-chan error, rec *agent.Recorder, coll *loader.Collect
 }
 
 func printSummary(coll *loader.Collector, rec *agent.Recorder, consumed uint64) {
+	warnStackFail(coll)
 	us := rec.StatsSnapshot()
 	fmt.Fprintf(os.Stderr, "userspace: consumed=%d received=%d chan_drops=%d read_errors=%d malformed=%d\n",
 		consumed, us.Received, us.ChanDrops, us.ReadErrors, us.Malformed)
@@ -252,18 +267,36 @@ func printSummary(coll *loader.Collector, rec *agent.Recorder, consumed uint64) 
 }
 
 func printBPFStats(stats [event.StatMax]uint64) {
-	fmt.Fprintf(os.Stderr, "bpf stats: ringbuf_drops=%d emitted=%d blocks=%d preempts=%d runq=%d short_filt=%d sampled_out=%d stack_fail=%d switch_seen=%d target_prev=%d\n",
+	fmt.Fprintf(os.Stderr, "bpf stats: ringbuf_drops=%d emitted=%d blocks=%d preempts=%d runq=%d running=%d short_filt=%d sampled_out=%d stack_fail=%d switch_seen=%d target_prev=%d\n",
 		stats[event.StatRingbufDrops],
 		stats[event.StatEventsEmitted],
 		stats[event.StatBlocksSeen],
 		stats[event.StatPreempts],
 		stats[event.StatRunQClosed],
+		stats[event.StatRunningEmitted],
 		stats[event.StatShortFiltered],
 		stats[event.StatSampledOut],
 		stats[event.StatStackFail],
 		stats[event.StatSwitchSeen],
 		stats[event.StatTargetPrev],
 	)
+}
+
+func warnStackFail(coll *loader.Collector) {
+	stats, err := coll.Stats()
+	if err != nil {
+		return
+	}
+	emitted := stats[event.StatEventsEmitted]
+	if emitted == 0 {
+		return
+	}
+	fail := stats[event.StatStackFail]
+	if fail*100/emitted > 10 {
+		fmt.Fprintf(os.Stderr,
+			"criticast: warning: stack capture failed on %d/%d events (%.0f%%); waker stacks may be missing\n",
+			fail, emitted, 100*float64(fail)/float64(emitted))
+	}
 }
 
 func warnIfNoEvents(stats [event.StatMax]uint64, received, consumed uint64) {

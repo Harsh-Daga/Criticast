@@ -24,7 +24,7 @@ $(VMLINUX):
 # Single translation unit (collector.c includes go_probe.c) — no ld.lld BPF link step.
 bpf: $(BPF_OBJ)
 
-$(BPF_OBJ): bpf/collector.c bpf/go_probe.c bpf/event.h bpf/go_cfg.h $(VMLINUX)
+$(BPF_OBJ): bpf/collector.c bpf/go_probe.c bpf/go_waitreason.h bpf/event.h bpf/go_cfg.h $(VMLINUX)
 	@test -f /sys/kernel/btf/vmlinux || (echo "BTF required"; exit 1)
 	$(CLANG) $(BPF_CLANG_FLAGS) -c bpf/collector.c -o $@
 	$(LLVM_STRIP) -g $@

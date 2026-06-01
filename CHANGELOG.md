@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.0 (unreleased) — Phase 2 Tier-2 + cleanup
+
+### Added
+
+- Go `gopark` uprobe: `wait_class`, `sudog.elem` → `event.aux`, subject stack at park.
+- Path policy, parallel-edge merge, ELF symbolize, trace v2 modules, `validate-bar-b.sh`.
+- [results/p2-validation.md](results/p2-validation.md) — prod0 Bar B pass (trace-joined chan ≥0.90).
+
+### Changed
+
+- Removed obsolete `docs/P2_IMPLEMENTATION_PROMPT.md`.
+- Docs: separate **mechanism gate** vs **Bar B literal**; retract “Bar B ✓ on p0b” without live scoped path≈wall.
+- `scripts/bar-b-scoped-live.sh` — scoped `analyze` on live trace vs GT handler wall time.
+- `validate-bar-b.sh`: B1=mechanism eval; B2-live=bar-b-scoped-live; no `verify.sh` recursion.
+- Default p0b trace: `/tmp/p0b-trace.criticast`.
+
 ## v0.1.0 (unreleased) — Phase 1 shippable core
 
 ### Added

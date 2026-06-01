@@ -77,6 +77,16 @@ docs/          # operator docs (not duplicate of charter)
 
 Match existing layout if the tree already differs; do not fight established paths without reason.
 
+### Analyzer (L4) — scoped paths
+
+| Mode | Entry | When |
+|------|--------|------|
+| **Request epoch** (Bar B literal) | `buildRequestEpoch` → `analyzeRequestEpoch` | `--scope-handler-goid` + GT handler window |
+| **Token scope** | `FilterScopedToken` → `analyzeScopedToken` | `token=` + `--gt-log`, no pinned handler |
+| **Unscoped** | `analyzeUnscoped` | No token / no GT window |
+
+Design: [docs/p2-bar-b-epoch-path.md](docs/p2-bar-b-epoch-path.md). **Never** set `path_weight` from `epoch.WallNs` or `wall − blocked_union` — path_weight is sum of observed wait edges on the DP path only. Worker bridge = waker on `wakee == handler` block-ends, not send-window GT handoff alone. RUNNING: BPF `EV_TASK_STATE` on switch-out. Falsification: [docs/p2-bar-b-falsification.md](docs/p2-bar-b-falsification.md).
+
 ## Code quality standards
 
 ### General

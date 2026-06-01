@@ -82,28 +82,7 @@ func LongestPath(edges []WaitEdge) CriticalPath {
 			}
 		}
 	}
-	end, maxW := maxDistNode(dist)
-	var path []PathEdge
-	seen := make(map[NodeID]struct{})
-	for {
-		e, ok := pred[end]
-		if !ok {
-			break
-		}
-		if _, loop := seen[end]; loop {
-			break
-		}
-		seen[end] = struct{}{}
-		path = append([]PathEdge{{WaitEdge: e}}, path...)
-		end = e.From
-	}
-	var wall uint64
-	for _, pe := range path {
-		if pe.EndNs > wall {
-			wall = pe.EndNs
-		}
-	}
-	return CriticalPath{Edges: path, PathWeight: maxW, WallNs: wall}
+	return rebuildPath(pred, dist)
 }
 
 func longestPathRelax(edges []WaitEdge) CriticalPath {
@@ -134,22 +113,7 @@ func longestPathRelax(edges []WaitEdge) CriticalPath {
 			break
 		}
 	}
-	end, maxW := maxDistNode(best)
-	var path []PathEdge
-	visited := make(map[NodeID]struct{})
-	for {
-		e, ok := pred[end]
-		if !ok {
-			break
-		}
-		if _, loop := visited[end]; loop {
-			break
-		}
-		visited[end] = struct{}{}
-		path = append([]PathEdge{{WaitEdge: e}}, path...)
-		end = e.From
-	}
-	return CriticalPath{Edges: path, PathWeight: maxW}
+	return rebuildPath(pred, best)
 }
 
 // tieBreakWaitEdge picks a deterministic predecessor on equal blocked_ns weight.
@@ -180,14 +144,10 @@ func maxDistNode(dist map[NodeID]uint64) (NodeID, uint64) {
 	return end, maxW
 }
 
-// PathWeightInvariantOK checks path_weight ≈ wall within slack (golden tests).
+// PathWeightInvariantOK checks path_weight ≤ wall + slack (Bar B / temporal path law).
 func PathWeightInvariantOK(path CriticalPath, wallNs uint64, slackNs uint64) bool {
 	if wallNs == 0 {
 		return path.PathWeight == 0
 	}
-	if path.PathWeight > wallNs+slackNs {
-		return false
-	}
-	// Path weight sums blocked time; wall may exceed when parallel waits exist.
-	return true
+	return path.PathWeight <= wallNs+slackNs
 }

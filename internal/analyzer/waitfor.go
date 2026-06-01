@@ -63,14 +63,14 @@ func BuildWaitEdges(events []event.Event) []WaitEdge {
 	return out
 }
 
-// FilterByScope keeps edges matching cookie or tid when scoped.
-func FilterByScope(edges []WaitEdge, scopeCookie uint64, scopeTid uint32, scoped bool) []WaitEdge {
-	if !scoped {
+// FilterByScope keeps edges matching cookie, tid, goid, or GT token when scoped.
+func FilterByScope(edges []WaitEdge, env scopeEnv) []WaitEdge {
+	if !env.scoped {
 		return edges
 	}
 	var out []WaitEdge
 	for _, e := range edges {
-		if MatchesScope(e.Cookie, e.Tid, scopeCookie, scopeTid, true) {
+		if env.matchesEdge(e) {
 			out = append(out, e)
 		}
 	}
@@ -78,9 +78,15 @@ func FilterByScope(edges []WaitEdge, scopeCookie uint64, scopeTid uint32, scoped
 }
 
 // FilterByConfidence splits edges into path-eligible vs ambiguous/low-confidence buckets.
+// At minConf==0 only sub-threshold confidence is excluded; ambiguous edges stay on-path
+// (P1 docs: zero threshold must not empty the scoped DAG on WC_UNKNOWN-heavy traces).
 func FilterByConfidence(edges []WaitEdge, minConf uint8) (kept, ambiguous []WaitEdge) {
 	for _, e := range edges {
-		if e.Meta.Ambiguous || e.Meta.Confidence < minConf {
+		if e.Meta.Confidence < minConf {
+			ambiguous = append(ambiguous, e)
+			continue
+		}
+		if minConf > 0 && e.Meta.Ambiguous {
 			ambiguous = append(ambiguous, e)
 			continue
 		}

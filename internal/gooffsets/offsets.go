@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 const schemaVersion = 1
@@ -14,6 +15,15 @@ const schemaVersion = 1
 type versionEntry struct {
 	Goid       map[string]int `json:"g.goid"`
 	ParentGoid map[string]int `json:"g.parentGoid"`
+	Waiting    map[string]int `json:"g.waiting"`
+	SudogElem  map[string]int `json:"sudog.elem"`
+}
+
+// ProbeOffsets holds runtime.g / sudog field offsets for Go uprobes.
+type ProbeOffsets struct {
+	GoidOff      uint32
+	WaitingOff   uint32
+	SudogElemOff uint32
 }
 
 // Database is the parsed offsets.json file.
@@ -55,17 +65,67 @@ func Load(path string) (*Database, error) {
 	return db, nil
 }
 
-// GoidOffset returns the goid field offset for goVersion on the current GOARCH.
-func (db *Database) GoidOffset(goVersion string) (uint32, error) {
-	ent, ok := db.Versions[goVersion]
-	if !ok {
-		return 0, fmt.Errorf("offsets: no entry for %s", goVersion)
+func archOffset(m map[string]int, goVersion, field string) (uint32, error) {
+	if len(m) == 0 {
+		return 0, nil
 	}
-	off, ok := ent.Goid[runtime.GOARCH]
+	off, ok := m[runtime.GOARCH]
 	if !ok {
-		return 0, fmt.Errorf("offsets: no g.goid for %s/%s", goVersion, runtime.GOARCH)
+		return 0, fmt.Errorf("offsets: no %s for %s/%s", field, goVersion, runtime.GOARCH)
 	}
 	return uint32(off), nil
+}
+
+// GoidOffset returns the goid field offset for goVersion on the current GOARCH.
+func (db *Database) GoidOffset(goVersion string) (uint32, error) {
+	key, err := db.ResolveGoVersion(goVersion)
+	if err != nil {
+		return 0, err
+	}
+	return archOffset(db.Versions[key].Goid, key, "g.goid")
+}
+
+// ResolveGoVersion picks an offsets.json key for the target Go toolchain.
+// Falls back to go1.22.0 when an exact row is missing (patch releases often share layout).
+func (db *Database) ResolveGoVersion(goVersion string) (string, error) {
+	if _, ok := db.Versions[goVersion]; ok {
+		return goVersion, nil
+	}
+	// go1.24.1 -> go1.24.0
+	if i := strings.LastIndex(goVersion, "."); i > 0 {
+		majorMinor := goVersion[:i] + ".0"
+		if _, ok := db.Versions[majorMinor]; ok {
+			return majorMinor, nil
+		}
+	}
+	for _, fb := range []string{"go1.22.0", "go1.21.0"} {
+		if _, ok := db.Versions[fb]; ok {
+			return fb, nil
+		}
+	}
+	return "", fmt.Errorf("offsets: no entry for %s", goVersion)
+}
+
+// ProbeOffsets returns offsets for casgstatus and gopark/sudog capture.
+func (db *Database) ProbeOffsets(goVersion string) (ProbeOffsets, error) {
+	key, err := db.ResolveGoVersion(goVersion)
+	if err != nil {
+		return ProbeOffsets{}, err
+	}
+	ent := db.Versions[key]
+	goid, err := archOffset(ent.Goid, key, "g.goid")
+	if err != nil {
+		return ProbeOffsets{}, err
+	}
+	waiting, err := archOffset(ent.Waiting, key, "g.waiting")
+	if err != nil {
+		return ProbeOffsets{}, err
+	}
+	elem, err := archOffset(ent.SudogElem, key, "sudog.elem")
+	if err != nil {
+		return ProbeOffsets{}, err
+	}
+	return ProbeOffsets{GoidOff: goid, WaitingOff: waiting, SudogElemOff: elem}, nil
 }
 
 // ResolvePath finds offsets.json under repo root.
