@@ -31,7 +31,8 @@ need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 install_apt_deps() {
   local pkgs=(
-    bpftrace clang llvm lld libelf-dev libbpf-dev bpftool
+    bpftrace clang llvm lld libelf-dev libbpf-dev
+    linux-tools-common linux-tools-generic
     make git curl ca-certificates wrk
   )
   echo "Running apt-get update ..."
@@ -41,12 +42,18 @@ install_apt_deps() {
     return 1
   fi
   apt-get install -y --no-install-recommends "${pkgs[@]}"
-  if ! command -v bpftool >/dev/null 2>&1; then
-    local tool
+  local kver tool
+  kver="$(uname -r)"
+  if apt-cache show "linux-tools-${kver}" >/dev/null 2>&1; then
+    apt-get install -y --no-install-recommends "linux-tools-${kver}" || true
+  fi
+  if [[ -x "/usr/lib/linux-tools/${kver}/bpftool" ]]; then
+    tool="/usr/lib/linux-tools/${kver}/bpftool"
+  else
     tool=$(find /usr/lib/linux-tools -name bpftool -type f 2>/dev/null | head -1)
-    if [[ -n "$tool" ]]; then
-      ln -sf "$tool" /usr/local/bin/bpftool
-    fi
+  fi
+  if [[ -n "$tool" ]]; then
+    ln -sf "$tool" /usr/local/bin/bpftool
   fi
 }
 
