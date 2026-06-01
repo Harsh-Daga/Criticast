@@ -8,10 +8,10 @@ criticast complements OpenTelemetry, Grafana, and Pyroscope. It does not replace
 
 - **Wait-for graph** from `sched_switch` / `sched_waking` (BTF tracepoints, CO-RE BPF)
 - **Lineage-first attribution** — request identity via spawn tree and anchors, not blind waker-cookie copy
-- **Tiered confidence** — ambiguous when identity is unknown; never a confident wrong label
+- **Tier-0/1 default** — scheduler wait-for + optional cookie; **Tier-2 chan** only when `aux`/elem is present (never confident without it)
+- **Analyze + pprof export** — critical-path text/JSON and `go tool pprof` profiles
 - **Go runtime** — `runtime.casgstatus` uprobe for goroutine IDs (`offsets.json`, no uretprobes)
 - **Offline evaluation** — ground-truth adversarial workload + `criticast eval` precision matrix
-- **Trace capture** — JSONL with monotonic/wall clock correlation for join with app logs
 
 ## Requirements
 
@@ -19,35 +19,45 @@ criticast complements OpenTelemetry, Grafana, and Pyroscope. It does not replace
 |-------------|--------|
 | Linux **5.8+** | BTF at `/sys/kernel/btf/vmlinux`, ringbuf, task storage |
 | **Capabilities** | `CAP_BPF` + `CAP_PERFMON` (not full root in docs/examples) |
-| **Toolchain** | `clang`, `llvm`, `bpftool`, `go` 1.21+ |
-| **Host** | Production eBPF requires Linux; macOS can build Go only |
+| **Toolchain** | `clang`, `llvm`, `bpftool`, `go` 1.22+ (export uses `toolchain go1.24` when needed) |
+| **Host** | Production eBPF requires Linux; macOS can build Go and run analyze/export on traces |
 
-## Quick start
+## 5-minute demo (Phase 1)
 
 ```bash
 git clone https://github.com/your-org/criticast.git && cd criticast
-export PATH="/usr/local/go/bin:$PATH"   # if needed
+export PATH="/usr/local/go/bin:$PATH"
 
 make bpf go workloads
 ./scripts/verify.sh
-```
 
-Record a target process (example: HTTP workload on :8080):
+# Linux: full record → analyze → pprof
+./scripts/demo-p1.sh
 
-```bash
-make spike                    # optional: bpftrace wake-rate sanity check
-./bin/httpgo &                # or your own service
-sudo ./bin/criticast record --pid $(pgrep -nx httpgo) --dur 30s \
+# Or step by step:
+./bin/httpgo &
+sudo ./bin/criticast record --pid $(pgrep -nx httpgo) --dur 10s \
   --bpf-object bpf/collector.bpf.o \
   --go-binary "/proc/$(pgrep -nx httpgo)/exe" --go-version go1.22.0 \
-  --out /tmp/trace.jsonl
+  --out /tmp/trace.criticast
+
+./bin/criticast analyze /tmp/trace.criticast --top 10
+./bin/criticast export /tmp/trace.criticast --pprof /tmp/criticast.pb.gz
+go tool pprof -top /tmp/criticast.pb.gz
 ```
 
-Evaluate attribution against ground truth:
+**macOS / no BPF:** analyze a fixture trace:
 
 ```bash
-./scripts/run-p0b.sh          # terminal A — adversarial server + GT log
-# terminal C: CONN=8 THREADS=1 DURATION=30s ./scripts/load-p0b-interleaved.sh
+make go
+./bin/criticast analyze testdata/traces/golden_chain.jsonl
+./bin/criticast export testdata/traces/golden_chain.jsonl --pprof /tmp/demo.pb.gz
+```
+
+Attribution regression (validation baseline):
+
+```bash
+./scripts/run-p0b.sh
 sudo -E env PATH="$PATH" ./scripts/record-p0b.sh
 ./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.jsonl --mode all
 ```
@@ -70,8 +80,10 @@ See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for setup, scripts, b
 
 ```text
 criticast env
-criticast record --pid <tgid> --dur 30s [--min-block 1us|50us] [--sample N] [--out trace.jsonl]
-criticast eval --gt-log <log> [--trace trace.jsonl] [--mode e1-lineage|e2-sudog|all]
+criticast record --pid <tgid> --dur 30s [--min-block 1us|50us] [--sample N] [--out trace.criticast]
+criticast analyze <trace> [--request 0x…|tid] [--top N] [--format text|json]
+criticast export <trace> --pprof out.pb.gz [--request 0x…|tid]
+criticast eval --gt-log <log> [--trace trace] [--mode e1-lineage|all]
 criticast go-smoke --pid <tgid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
 ```
 
@@ -80,9 +92,9 @@ criticast go-smoke --pid <tgid> [--go-binary /proc/PID/exe] [--go-version go1.22
 ```text
 bpf/              # GPLv2 kernel collector + go_probe.c
 cmd/criticast/    # CLI
-internal/         # loader, agent, attribution, analyzer, trace, …
-scripts/          # verify, benchmarks, workloads
-testdata/         # httpgo + adversarial server for regression
+internal/         # loader, agent, attribution, analyzer, trace, symbolize, export
+scripts/          # verify, demo-p1, benchmarks, workloads
+testdata/         # httpgo, adversarial server, golden traces
 docs/             # operator documentation
 results/          # benchmark reports (committed)
 ```

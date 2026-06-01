@@ -109,7 +109,7 @@ func runRecord(args []string) error {
 			stop()
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured); err != nil {
+				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
 					return err
 				}
 			}
@@ -121,7 +121,7 @@ func runRecord(args []string) error {
 			stop()
 			drainRecorder(errCh, rec, coll, consumed)
 			if *outPath != "" {
-				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured); err != nil {
+				if err := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); err != nil {
 					return err
 				}
 			}
@@ -145,7 +145,7 @@ func runRecord(args []string) error {
 				return err
 			}
 			if *outPath != "" {
-				if werr := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured); werr != nil {
+				if werr := writeTrace(*outPath, uint32(*pid), minNs, uint32(*sample), wallBase, ktimeBase, captured, coll, rec); werr != nil {
 					return werr
 				}
 			}
@@ -154,7 +154,7 @@ func runRecord(args []string) error {
 	}
 }
 
-func writeTrace(path string, tgid uint32, minBlock uint64, sample uint32, wallBase time.Time, ktimeBase uint64, events []event.Event) error {
+func writeTrace(path string, tgid uint32, minBlock uint64, sample uint32, wallBase time.Time, ktimeBase uint64, events []event.Event, coll *loader.Collector, rec *agent.Recorder) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -170,7 +170,25 @@ func writeTrace(path string, tgid uint32, minBlock uint64, sample uint32, wallBa
 		hdr.WallBaseUTC = wallBase.Format(time.RFC3339Nano)
 		hdr.Started = hdr.WallBaseUTC
 	}
-	return trace.Write(f, hdr, events)
+	opts := &trace.WriteOptions{Stacks: map[int32][]uint64{}}
+	us := rec.StatsSnapshot()
+	opts.Footer = &trace.Footer{
+		UserspaceReceived:   us.Received,
+		UserspaceChanDrops:  us.ChanDrops,
+		UserspaceReadErrors: us.ReadErrors,
+		UserspaceMalformed:  us.Malformed,
+	}
+	if stats, err := coll.Stats(); err == nil {
+		opts.Footer.BPFRingbufDrops = stats[event.StatRingbufDrops]
+		opts.Footer.BPFEventsEmitted = stats[event.StatEventsEmitted]
+		opts.Footer.BPFBlocksSeen = stats[event.StatBlocksSeen]
+		opts.Footer.BPFPreempts = stats[event.StatPreempts]
+		opts.Footer.BPFRunQClosed = stats[event.StatRunQClosed]
+		opts.Footer.BPFShortFiltered = stats[event.StatShortFiltered]
+		opts.Footer.BPFSampledOut = stats[event.StatSampledOut]
+		opts.Footer.BPFStackFail = stats[event.StatStackFail]
+	}
+	return trace.Write(f, hdr, events, opts)
 }
 
 func drainRecorder(errCh <-chan error, rec *agent.Recorder, coll *loader.Collector, consumed uint64) {

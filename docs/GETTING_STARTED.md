@@ -56,8 +56,10 @@ sudo ./bin/criticast record --pid <tgid> --dur 30s \
   --min-block 1us \
   --sample 1 \
   --bpf-object bpf/collector.bpf.o \
-  --out /tmp/trace.jsonl
+  --out /tmp/trace.criticast
 ```
+
+Traces use **format v2** (magic `CRTC`): header, stacks section, events, footer. `analyze` also reads **v1 JSONL** traces from earlier validation runs.
 
 Go targets — add uprobes for goroutine IDs:
 
@@ -66,10 +68,48 @@ sudo ./bin/criticast record --pid $(pgrep -nx httpgo) --dur 30s \
   --bpf-object bpf/collector.bpf.o \
   --go-binary "/proc/$(pgrep -nx httpgo)/exe" \
   --go-version go1.22.0 \
-  --out /tmp/trace.jsonl
+  --out /tmp/trace.criticast
 ```
 
 Output includes userspace and BPF drop counters. Ringbuf drops must stay at zero under normal load.
+
+## Analyze
+
+Critical-path analysis (Tier-0/1): wait-for graph, SCC collapse, longest blocked path, dominant waits.
+
+```bash
+./bin/criticast analyze /tmp/trace.criticast
+./bin/criticast analyze /tmp/trace.criticast --request 0xabc --format json
+./bin/criticast analyze /tmp/trace.criticast --top 20 --min-confidence 80
+./bin/criticast analyze testdata/traces/golden_chain.jsonl   # offline fixture
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--request` | (none) | Scope by cookie (`0x…`) or tid (decimal) |
+| `--top` | `10` | Dominant waits when not scoped |
+| `--format` | `text` | `text` or `json` |
+| `--min-confidence` | `0` | Hide sub-threshold edges from critical path (still listed as ambiguous) |
+| `--spurious-wake-us` | `10` | False-wakeup filter threshold (charter E.4) |
+
+Channel waits without `aux`/elem appear as **ambiguous** — not high-confidence Tier-2.
+
+## Export (pprof)
+
+```bash
+./bin/criticast export /tmp/trace.criticast --pprof /tmp/criticast.pb.gz
+go tool pprof -top /tmp/criticast.pb.gz
+```
+
+`--otlp` is reserved for P3 (exits with code 2). Use `--pprof` for Grafana/Pyroscope-compatible profiles.
+
+## Phase 1 demo script
+
+```bash
+./scripts/demo-p1.sh
+```
+
+On macOS the script prints analyzer-only commands (no BPF attach).
 
 ## Evaluate attribution
 
@@ -123,4 +163,4 @@ Inside the container: `make test`, `make workloads`, optional `make spike`. Do n
 
 ## What is not in the tree yet
 
-See [ROADMAP.md](ROADMAP.md): production stack symbolization, pprof/OTLP export, BPF `sudog.elem` capture, full analyzer SCC/cascade, Kubernetes agent.
+See [ROADMAP.md](ROADMAP.md): ELF symbolization from `/proc` maps, BPF `sudog.elem` capture, OTLP-Profiles default export, live TUI, Kubernetes DaemonSet.

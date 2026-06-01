@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, phase1/shippable-core]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Install BPF toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm libelf-dev libbpf-dev bpftool linux-headers-generic
+
+      - name: Verify
+        run: ./scripts/verify.sh

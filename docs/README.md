@@ -8,6 +8,7 @@ Start here, then drill into the charter for design depth.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Everyone | Layers, data flow, invariants |
 | [ROADMAP.md](ROADMAP.md) | Maintainers | Current capabilities, validated learnings, next work |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | PRs, licenses, regression expectations |
+| [P1_IMPLEMENTATION_PROMPT.md](P1_IMPLEMENTATION_PROMPT.md) | Implementers | Phase 1 full execution brief |
 | [../CHARTER.md](../CHARTER.md) | Designers | Full technical specification |
 | [../AGENTS.md](../AGENTS.md) | Contributors + LLMs | Day-to-day engineering rules |
 | [../results/README.md](../results/README.md) | Reviewers | Overhead and attribution benchmark reports |

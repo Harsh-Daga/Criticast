@@ -8,9 +8,11 @@ This page records **what works today**, **what we learned from early validation*
 |------|--------|
 | BPF collector | `sched_switch` / `sched_waking`, task storage, ringbuf, per-CPU stats, targeted TGID |
 | Go uprobes | `runtime.casgstatus` → `tid_to_task` / `task_id` on events |
-| Userspace | Ringbuf drain (bounded channel, drop + count), JSONL trace, CLI `record` / `eval` / `go-smoke` |
-| Attribution | E1 lineage, E2 sudog-elem (offline GT), E3 resource suppress, E4 naive baseline |
-| Analyzer | Wait-for graph build, longest-path keys, Jaccard helper |
+| Userspace | Ringbuf drain, trace v2 (`CRTC`), CLI `record` / `analyze` / `export` / `eval` |
+| Symbolize | Trace stack_id → frames (PC placeholders; ELF maps planned) |
+| Export | `criticast export --pprof` (gzip profile, `critical_wait` samples) |
+| Attribution | E1 lineage, E2 sudog-elem (offline GT), E3 resource suppress in analyze, E4 naive baseline |
+| Analyzer | Segments, SCC, longest path, false-wakeup filter, dominant-wait aggregation |
 | Regression | `httpgo` workload, adversarial server + interleaved load, scripts under `scripts/` |
 
 Published numbers: [results/README.md](../results/README.md).
@@ -44,6 +46,10 @@ Published numbers: [results/README.md](../results/README.md).
 
 `bpf/collector.c` reads `last_sudog_elem` / `futex_uaddr` into `event.aux` but **does not write them yet**. Trace-joined E2 therefore falls back to waker-token heuristics (~78% chan precision). Closing this gap is the top BPF attribution task.
 
+## Phase 1 execution
+
+Full agent/engineer brief: **[P1_IMPLEMENTATION_PROMPT.md](P1_IMPLEMENTATION_PROMPT.md)** (branch `phase1/shippable-core`).
+
 ## Next milestones
 
 Ordered by dependency. Each should land with tests and an update to benchmark reports when behavior changes.
@@ -65,15 +71,18 @@ Ordered by dependency. Each should land with tests and an update to benchmark re
 
 ### 3. Symbolization & export (L1 / L5)
 
-- [ ] `internal/symbolize` — stack_id → frames, build-id cache
-- [ ] `internal/export` — pprof, OTLP-Profiles, stable `.criticast` trace versioning
-- [ ] CLI: `analyze`, `top`, export flags per charter Part J
+- [x] `internal/symbolize` — Resolver + trace STACKS (P1)
+- [ ] ELF `/proc` symbolization + build-id cache
+- [x] `internal/export` — pprof (P1)
+- [ ] OTLP-Profiles default export (P3)
+- [x] CLI: `analyze`, `export --pprof` (P1); `top` TUI (P3)
 
 ### 4. Analyzer (L4)
 
-- [ ] SCC decomposition, cascade segments (charter Part E)
-- [ ] Per-request critical path with confidence on edges
-- [ ] Invariant tests: `path_weight ≈ wall_clock` on golden traces
+- [x] SCC + longest path + dominant waits (P1)
+- [ ] Full wPerf cascade redistribution (E.2)
+- [x] Confidence + ambiguous buckets in analyze (P1)
+- [x] Golden trace tests (P1)
 
 ### 5. Operations
 
