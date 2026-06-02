@@ -16,7 +16,7 @@ if ! command -v llvm-objdump >/dev/null 2>&1; then
 fi
 
 dump="$(llvm-objdump -t "$OBJ" 2>/dev/null || true)"
-for sym in handle_switch handle_waking up_casgstatus; do
+for sym in handle_switch handle_waking up_casgstatus up_gopark; do
   if ! grep -q "$sym" <<<"$dump"; then
     echo "test-bpf-object: symbol $sym not in $OBJ" >&2
     exit 1

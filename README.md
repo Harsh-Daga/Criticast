@@ -7,111 +7,109 @@ criticast complements OpenTelemetry, Grafana, and Pyroscope. It does not replace
 ## Features
 
 - **Wait-for graph** from `sched_switch` / `sched_waking` (BTF tracepoints, CO-RE BPF)
-- **Lineage-first attribution** — request identity via spawn tree and anchors, not blind waker-cookie copy
-- **Tier-0/1 default** — scheduler wait-for + optional cookie; **Tier-2 chan** only when `aux`/elem is present (never confident without it)
-- **Analyze + pprof export** — critical-path text/JSON and `go tool pprof` profiles
-- **Go runtime** — `runtime.casgstatus` uprobe for goroutine IDs (`offsets.json`, no uretprobes)
-- **Offline evaluation** — ground-truth adversarial workload + `criticast eval` precision matrix
+- **Lineage-first attribution** — request identity via spawn tree; no blind waker-cookie copy at shared resources
+- **Go Tier-2** — `runtime.gopark` → `wait_class` + `sudog.elem` in `event.aux` when present
+- **Analyze + pprof** — scoped `--request`, path policy, confidence (C.3.6), ELF symbolize (Linux)
+- **Ground-truth eval** — adversarial p0b workload + `criticast eval` precision matrix
 
 ## Requirements
 
 | Requirement | Notes |
 |-------------|--------|
 | Linux **5.8+** | BTF at `/sys/kernel/btf/vmlinux`, ringbuf, task storage |
-| **Capabilities** | `CAP_BPF` + `CAP_PERFMON` (not full root in docs/examples) |
-| **Toolchain** | `clang`, `llvm`, `bpftool`, Go **1.22+** (module); CI uses **1.24.x** |
-| **Host** | Production eBPF requires Linux; macOS can build Go and run analyze/export on traces |
+| **Capabilities** | `CAP_BPF` + `CAP_PERFMON` |
+| **Toolchain** | `clang`, `llvm`, `bpftool`, Go **1.22+** (CI uses **1.24.x**) |
+| **macOS** | Build Go, run `analyze`/`export` on committed fixtures; BPF requires Linux |
 
-## 5-minute demo (Phase 1)
+## Quick start
 
 ```bash
-git clone https://github.com/your-org/criticast.git && cd criticast
+git clone https://github.com/Harsh-Daga/Criticast.git && cd Criticast
 export PATH="/usr/local/go/bin:$PATH"
 
 make bpf go workloads
 ./scripts/verify.sh
 
-# Linux: full record → analyze → pprof (starts bin/httpgo, runs wrk, checks bpf emitted > 0)
+# Linux: record → analyze → pprof
 ./scripts/demo-p1.sh
 
-./bin/criticast analyze /tmp/trace.criticast --top 10
-./bin/criticast export /tmp/trace.criticast --pprof /tmp/criticast.pb.gz
-go tool pprof -top /tmp/criticast.pb.gz
+# Linux: attribution gate (p0b)
+./scripts/run-p0b.sh >>/tmp/p0b-gt.log 2>&1 &
+CONN=8 THREADS=1 DURATION=30s ./scripts/load-p0b-interleaved.sh &
+sleep 2 && OUT=/tmp/p0b-trace.criticast DUR=30s ./scripts/record-p0b.sh
+./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.criticast --mode all
 ```
 
-**macOS / no BPF:** analyze a fixture trace:
+**macOS / offline:**
 
 ```bash
 make go
 ./bin/criticast analyze testdata/traces/golden_chain.jsonl
-./bin/criticast export testdata/traces/golden_chain.jsonl --pprof /tmp/demo.pb.gz
+./scripts/validate-bar-b.sh   # Linux only for full gate
 ```
 
-Attribution regression (validation baseline):
+Full guide: **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** · Validation: **[results/p2-validation.md](results/p2-validation.md)**
 
-```bash
-./scripts/run-p0b.sh
-sudo -E env PATH="$PATH" ./scripts/record-p0b.sh
-./bin/criticast eval --gt-log /tmp/p0b-gt.log --trace /tmp/p0b-trace.jsonl --mode all
-```
+## Status (2026-06)
 
-See **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** for setup, scripts, benchmarks, and troubleshooting.
+| Milestone | Status |
+|-----------|--------|
+| P0 benchmarks | [results/phase0/](results/phase0/) |
+| P1 plumbing (Bar A) | Done — [results/p1-smoke.md](results/p1-smoke.md) |
+| P2 mechanisms (p0b live trace) | **Validated** — trace-joined chan ≥0.99 |
+| Bar B literal (scoped path≈wall on live capture) | **Open** — `./scripts/bar-b-scoped-live.sh` |
+| Public GA | **Not yet** — [docs/PHASES.md](docs/PHASES.md) |
 
-## Limitations (v0.1 / Phase 1)
+`demo-p1` = Bar A on `httpgo`. **Mechanism gate** = p0b `eval` on live BPF. **Bar B** = scoped `analyze` explaining one request’s latency — not the same check.
 
-This release is **Tier-0/1** per [CHARTER.md](CHARTER.md): scheduler wait-for + lineage rules, not a full APM.
+## Limitations
 
-| Topic | v0.1 behavior |
-|-------|----------------|
-| Wait classes | Often `WC_UNKNOWN` until BPF refinement (gopark/syscall/sudog) |
-| Channel Tier-2 | Ambiguous unless `event.aux` carries elem id — **no confident chan labels** without it |
-| pprof stacks | Wait **durations** are real; function names may show `unknown` (ELF symbolize planned) |
-| Scale | Single-process analyze; very large traces may need sharding (P2+) |
-| Deployment | `--pid` targeting; cgroup/k8s operator path is P2+ |
-
-Phase 1 status (plumbing vs thesis — read both): **[docs/P1_COMPLETION.md](docs/P1_COMPLETION.md)** · [results/p1-smoke.md](results/p1-smoke.md).
-
-`demo-p1.sh` validates the **data path** (Bar A). It does **not** prove request-scoped causal critical path (Bar B).
+| Topic | Current behavior |
+|-------|------------------|
+| Deployment | `--pid` / local scripts; k8s DaemonSet is P3 |
+| Scale | Single-process analyze; sharding not implemented |
+| Stacks | ~15% `stack_fail` possible under load; symbolize needs binary/maps in trace |
+| Generic httpgo | Unscoped analyze often `WC_UNKNOWN`-heavy — use `--request` + GT workload for proof |
+| Overhead | Re-run `bench-p0a.sh` after BPF changes — [results/phase0/p0a-overhead.md](results/phase0/p0a-overhead.md) |
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [CHARTER.md](CHARTER.md) | Product and system design (source of truth) |
-| [docs/PHASES.md](docs/PHASES.md) | Phase map, ship policy, active branch |
-| [docs/P1_COMPLETION.md](docs/P1_COMPLETION.md) | P1 plumbing vs thesis validation |
-| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Build, run, validate, regress |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, data flow, invariants |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Capabilities and engineering backlog |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PR workflow, licenses, release policy |
-| [AGENTS.md](AGENTS.md) | Engineering rules for contributors and LLMs |
+| [CHARTER.md](CHARTER.md) | Design authority |
+| [docs/PHASES.md](docs/PHASES.md) | Phase map and ship policy |
+| [docs/P1_COMPLETION.md](docs/P1_COMPLETION.md) | Bar A vs Bar B |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Capabilities and backlog |
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Build, scripts, benchmarks |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PR workflow and licenses |
+| [AGENTS.md](AGENTS.md) | Contributor and agent rules |
 | [results/](results/README.md) | Published benchmark reports |
 
 ## CLI
 
 ```text
 criticast env
-criticast record --pid <tgid> --dur 30s [--min-block 1us|50us] [--sample N] [--out trace.criticast]
-criticast analyze <trace> [--request 0x…|tid] [--top N] [--format text|json]
+criticast record --pid <tgid> --dur 30s [--out trace.criticast] [--go-binary path]
+criticast analyze <trace> [--request 0x…|tid] [--format text|json]
 criticast export <trace> --pprof out.pb.gz [--request 0x…|tid]
-criticast eval --gt-log <log> [--trace trace] [--mode e1-lineage|all]
-criticast go-smoke --pid <tgid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
-criticast probe-stats --pid <tgid> --dur 5s [--bpf-object bpf/collector.bpf.o]
+criticast eval --gt-log <log> [--trace trace.criticast] [--mode all]
+criticast go-smoke --pid <tgid>   # uprobe attach smoke test
+criticast probe-stats --pid <tgid> --dur 5s
 ```
 
-## Repository layout
+## Layout
 
 ```text
-bpf/              # GPLv2 kernel collector + go_probe.c
+bpf/              # GPLv2 collector (sched + go uprobes)
 cmd/criticast/    # CLI
 internal/         # loader, agent, attribution, analyzer, trace, symbolize, export
-scripts/          # verify, demo-p1, benchmarks, workloads
-testdata/         # httpgo, adversarial server, golden traces
-docs/             # operator documentation
-results/          # benchmark reports (committed)
+scripts/          # verify, validate-bar-b, demo, benchmarks
+testdata/         # httpgo, p0b-server, golden traces
+docs/             # operator docs
+results/          # committed benchmark reports
 ```
 
 ## License
 
 - **Userspace (Go, docs, scripts):** Apache-2.0
-- **BPF objects (`bpf/`):** GPL-2.0-only
+- **BPF (`bpf/`):** GPL-2.0-only

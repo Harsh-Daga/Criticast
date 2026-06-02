@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/criticast/criticast/internal/analyzer"
 	"github.com/criticast/criticast/internal/event"
@@ -16,7 +17,7 @@ import (
 
 func runAnalyze(args []string) error {
 	fs := flag.NewFlagSet("analyze", flag.ExitOnError)
-	request, topN, minConf, spuriousUS := traceAnalyzeFlags(fs)
+	request, gtLog, scopeFrom, scopeTo, scopePad, scopeHandlerGoid, topN, minConf, spuriousUS := traceAnalyzeFlags(fs)
 	format := fs.String("format", "text", "output format: text|json")
 
 	tracePath, flagArgs, err := parseTracePathArgs(args)
@@ -43,9 +44,18 @@ func runAnalyze(args []string) error {
 		return fmt.Errorf("analyze: load trace: %w", err)
 	}
 
+	pad, err := time.ParseDuration(*scopePad)
+	if *scopePad != "" && err != nil {
+		return fmt.Errorf("analyze: --scope-pad: %w", err)
+	}
 	opts := analyzer.Options{
 		RequestScope:   *request,
-		MinConfidence:  uint8(*minConf),
+		GtLog:          *gtLog,
+		ScopeFromUTC:   *scopeFrom,
+		ScopeToUTC:     *scopeTo,
+		ScopePad:         pad,
+		ScopeHandlerGoid: *scopeHandlerGoid,
+		MinConfidence:    uint8(*minConf),
 		TopN:           *topN,
 		SpuriousWakeNs: *spuriousUS * 1000,
 	}
@@ -54,7 +64,13 @@ func runAnalyze(args []string) error {
 		return fmt.Errorf("analyze: %w", err)
 	}
 
-	resolver := symbolize.NewTraceResolver(tf.Stacks)
+	resolver, err := symbolize.NewForTrace(tf, tf.Header.TargetBinary)
+	if err != nil {
+		return fmt.Errorf("analyze: symbolize: %w", err)
+	}
+	if cr, ok := resolver.(*symbolize.ChainedResolver); ok {
+		cr.PrintHintOnce(os.Stderr)
+	}
 	if *format == "json" {
 		return writeAnalyzeJSON(os.Stdout, tf, res, resolver)
 	}
@@ -69,11 +85,19 @@ func writeAnalyzeText(w io.Writer, tf *trace.File, res *analyzer.Result, resolve
 			tf.Footer.UserspaceReceived, tf.Footer.BPFEventsEmitted, tf.Footer.BPFRingbufDrops)
 	}
 
-	scope := "all requests (Tier-0/1)"
+	scope := "all requests (Tier-0)"
+	if res.UnscopedNote != "" {
+		scope = res.UnscopedNote
+	}
 	if res.Scoped {
-		if res.ScopeCookie != 0 {
+		switch {
+		case res.ScopeToken != "":
+			scope = fmt.Sprintf("token=%s", res.ScopeToken)
+		case res.ScopeCookie != 0:
 			scope = fmt.Sprintf("cookie=0x%x", res.ScopeCookie)
-		} else {
+		case res.ScopeTaskID != 0:
+			scope = fmt.Sprintf("goid=%d", res.ScopeTaskID)
+		default:
 			scope = fmt.Sprintf("tid=%d", res.ScopeTid)
 		}
 	}
@@ -89,7 +113,7 @@ func writeAnalyzeText(w io.Writer, tf *trace.File, res *analyzer.Result, resolve
 	fmt.Fprintln(w)
 
 	if len(res.CriticalPath.Edges) > 0 {
-		fmt.Fprintln(w, "\nCRITICAL PATH (longest blocked-ns wait chain; see confidence per edge):")
+		fmt.Fprintln(w, "\nCRITICAL PATH (longest blocked-ns wait chain; confidence filters ambiguous/resource edges):")
 		for _, pe := range res.CriticalPath.Edges {
 			writePathEdge(w, pe, resolver)
 		}
@@ -143,8 +167,14 @@ type analyzeJSON struct {
 	TraceVersion int                   `json:"trace_version"`
 	Request      string                `json:"request_scope"`
 	Summary      analyzer.Summary      `json:"summary"`
-	PathWeight   uint64                `json:"path_weight_ns"`
-	AmbiguousNs  uint64                `json:"ambiguous_ns"`
+	PathWeight         uint64 `json:"path_weight_ns"`
+	EpochWallNs        uint64 `json:"epoch_wall_ns,omitempty"`
+	HandlerOccupancyNs uint64 `json:"handler_occupancy_ns,omitempty"`
+	ResidualNs         uint64 `json:"residual_ns,omitempty"` // wall - path_weight (diagnostic)
+	EdgeCount        int    `json:"scoped_edge_count"`
+	RequestGoidCount int    `json:"request_goid_count"`
+	WindowEdgeCount  int    `json:"window_edge_count"`
+	AmbiguousNs      uint64 `json:"ambiguous_ns"`
 	CriticalPath []analyzeJSONPathEdge `json:"critical_path"`
 	Dominant     []analyzeJSONRanked   `json:"dominant_waits"`
 }
@@ -165,15 +195,28 @@ type analyzeJSONRanked struct {
 
 func writeAnalyzeJSON(w io.Writer, tf *trace.File, res *analyzer.Result, _ symbolize.Resolver) error {
 	out := analyzeJSON{
-		TraceVersion: tf.Format,
-		Summary:      res.Summary,
-		PathWeight:   res.CriticalPath.PathWeight,
-		AmbiguousNs:  res.AmbiguousNs,
+		TraceVersion:       tf.Format,
+		Summary:            res.Summary,
+		PathWeight:         res.CriticalPath.PathWeight,
+		EpochWallNs:        res.EpochWallNs,
+		HandlerOccupancyNs: res.HandlerOccupancyNs,
+		EdgeCount:        res.EdgeCount,
+		RequestGoidCount: res.RequestGoidCount,
+		WindowEdgeCount:  res.WindowEdgeCount,
+		AmbiguousNs:      res.AmbiguousNs,
+	}
+	if res.EpochWallNs > 0 && res.EpochWallNs >= res.CriticalPath.PathWeight {
+		out.ResidualNs = res.EpochWallNs - res.CriticalPath.PathWeight
 	}
 	if res.Scoped {
-		if res.ScopeCookie != 0 {
+		switch {
+		case res.ScopeToken != "":
+			out.Request = fmt.Sprintf("token=%s", res.ScopeToken)
+		case res.ScopeCookie != 0:
 			out.Request = fmt.Sprintf("0x%x", res.ScopeCookie)
-		} else {
+		case res.ScopeTaskID != 0:
+			out.Request = fmt.Sprintf("goid=%d", res.ScopeTaskID)
+		default:
 			out.Request = fmt.Sprintf("tid:%d", res.ScopeTid)
 		}
 	}
@@ -194,7 +237,7 @@ func writeAnalyzeJSON(w io.Writer, tf *trace.File, res *analyzer.Result, _ symbo
 func pathEdgeJSON(pe analyzer.PathEdge) analyzeJSONPathEdge {
 	return analyzeJSONPathEdge{
 		BlockedNs:  pe.BlockedNs,
-		WaitClass:  waitClassName(pe.WaitClass),
+		WaitClass:  analyzer.DisplayWaitClass(pe.WaitEdge),
 		From:       analyzer.FormatNode(pe.From),
 		To:         analyzer.FormatNode(pe.To),
 		Confidence: pe.Meta.Confidence,

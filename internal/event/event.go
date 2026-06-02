@@ -77,5 +77,6 @@ const (
 	StatStackFail
 	StatSwitchSeen
 	StatTargetPrev
+	StatRunningEmitted
 	StatMax
 )

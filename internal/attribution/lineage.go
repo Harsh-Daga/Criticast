@@ -10,21 +10,23 @@ import (
 
 // LineageStore holds per-goid request tokens (lineage-first, CHARTER §C.3).
 type LineageStore struct {
-	cookie map[uint64]string
-	parent map[uint64]uint64
-	expire map[uint64]time.Time
-	ttl    time.Duration
-	sudog  map[uint64]string // sudog.elem → token (E2)
+	cookie         map[uint64]string
+	parent         map[uint64]uint64
+	handlerByToken map[string]uint64 // handler goid per request token (spawn propagation)
+	expire         map[uint64]time.Time
+	ttl            time.Duration
+	sudog          map[uint64]string // sudog.elem → token (E2)
 }
 
 // NewLineageStore creates an empty lineage table.
 func NewLineageStore(cookieTTL time.Duration) *LineageStore {
 	return &LineageStore{
-		cookie: make(map[uint64]string),
-		parent: make(map[uint64]uint64),
-		expire: make(map[uint64]time.Time),
-		ttl:    cookieTTL,
-		sudog:  make(map[uint64]string),
+		cookie:         make(map[uint64]string),
+		parent:         make(map[uint64]uint64),
+		handlerByToken: make(map[string]uint64),
+		expire:         make(map[uint64]time.Time),
+		ttl:            cookieTTL,
+		sudog:          make(map[uint64]string),
 	}
 }
 
@@ -33,7 +35,17 @@ func (s *LineageStore) ApplyRecord(rec groundtruth.Record) {
 	switch rec.Site {
 	case groundtruth.SiteHandlerEntry:
 		s.setCookie(rec.Goid, rec.Token, rec.TS)
+		if rec.Token != "" {
+			s.handlerByToken[rec.Token] = rec.Goid
+		}
 	case groundtruth.SiteSpawn, groundtruth.SiteSpawnWork:
+		if h, ok := s.handlerByToken[rec.Token]; ok && h != 0 {
+			if tok := s.Cookie(h, rec.TS); tok != "" {
+				s.setCookie(rec.Goid, tok, rec.TS)
+				s.parent[rec.Goid] = h
+				return
+			}
+		}
 		if p, ok := s.parent[rec.Goid]; ok {
 			if tok := s.Cookie(p, rec.TS); tok != "" {
 				s.setCookie(rec.Goid, tok, rec.TS)

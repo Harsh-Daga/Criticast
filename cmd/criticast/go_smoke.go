@@ -46,7 +46,7 @@ func runGoSmoke(args []string) error {
 	if err != nil {
 		return err
 	}
-	goidOff, err := db.GoidOffset(*goVer)
+	probeOff, err := db.ProbeOffsets(*goVer)
 	if err != nil {
 		return err
 	}
@@ -58,10 +58,11 @@ func runGoSmoke(args []string) error {
 	}
 	defer coll.Close()
 
-	if err := coll.AttachGoUprobes(*exe, goidOff); err != nil {
+	if err := coll.AttachGoUprobes(*exe, loader.GoProbeOffsets(probeOff)); err != nil {
 		return fmt.Errorf("attach go uprobes: %w", err)
 	}
-	fmt.Printf("go-smoke: attached casgstatus (goid_off=%d) for %s\n", goidOff, *exe)
+	fmt.Printf("go-smoke: attached casgstatus+gopark (goid=%d waiting=%d sudog.elem=%d) for %s\n",
+		probeOff.GoidOff, probeOff.WaitingOff, probeOff.SudogElemOff, *exe)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

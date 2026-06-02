@@ -58,8 +58,17 @@ type TraceJoinStats struct {
 
 // JoinStatsFromTrace reports why trace join may yield zero labeled edges.
 func JoinStatsFromTrace(hdr trace.Header, events []event.Event, tl *groundtruth.Timeline) TraceJoinStats {
+	lin := replayLineage(tl)
+	idx := NewChanHandoffIndex(BuildChanHandoffs(tl.AllRecords()))
+	return joinStats(hdr, events, tl, lin, idx)
+}
+
+func joinStats(hdr trace.Header, events []event.Event, tl *groundtruth.Timeline, lin *LineageStore, handoffIdx *ChanHandoffIndex) TraceJoinStats {
 	var st TraceJoinStats
 	st.ClockCorrelated = hdr.KtimeBaseNs != 0 && hdr.WallBaseUTC != ""
+	if !st.ClockCorrelated {
+		return st
+	}
 	for _, ev := range events {
 		if ev.Type != event.EVBlockEnd {
 			continue
@@ -69,19 +78,79 @@ func JoinStatsFromTrace(hdr trace.Header, events []event.Event, tl *groundtruth.
 			continue
 		}
 		st.WithGoid++
-		if tl.TokenAt(ev.TaskID, hdr.EventWallTime(ev.TsNs)) != "" {
+		te := TraceEdge{
+			WakeeGoid: ev.TaskID,
+			Ts:        hdr.EventWallTime(ev.TsNs),
+			SudogElem: ev.Aux,
+		}
+		if tokenForWakee(tl, lin, handoffIdx, te) != "" {
 			st.Labeled++
 		}
 	}
 	return st
 }
 
+// ReplayLineageFromTimeline rebuilds sudog + spawn lineage from GT order (Bar B / eval join).
+func ReplayLineageFromTimeline(tl *groundtruth.Timeline) *LineageStore {
+	return replayLineage(tl)
+}
+
+func replayLineage(tl *groundtruth.Timeline) *LineageStore {
+	if tl == nil {
+		return nil
+	}
+	lin := NewLineageStore(0)
+	for _, rec := range tl.AllRecords() {
+		lin.ApplyRecord(rec)
+	}
+	return lin
+}
+
+// TokenForWakee resolves request token for a block-end wakee (GT site, sudog.elem, spawn).
+func TokenForWakee(tl *groundtruth.Timeline, lin *LineageStore, te TraceEdge) string {
+	var idx *ChanHandoffIndex
+	if tl != nil {
+		idx = NewChanHandoffIndex(BuildChanHandoffs(tl.AllRecords()))
+	}
+	return tokenForWakee(tl, lin, idx, te)
+}
+
+func tokenForWakee(tl *groundtruth.Timeline, lin *LineageStore, handoffIdx *ChanHandoffIndex, te TraceEdge) string {
+	// Sudog.elem wins over per-goid TokenAt — shared workers accumulate stale tokens (P0-B pool).
+	if lin != nil && te.SudogElem != 0 {
+		if tok := lin.SudogToken(te.SudogElem); tok != "" {
+			return tok
+		}
+	}
+	if handoffIdx != nil {
+		if tok := handoffIdx.Token(te.WakeeGoid, te.Ts); tok != "" {
+			return tok
+		}
+	}
+	if tl != nil {
+		if tok := tl.TokenAt(te.WakeeGoid, te.Ts); tok != "" {
+			return tok
+		}
+	}
+	if lin != nil {
+		if tok := lin.Cookie(te.WakeeGoid, te.Ts); tok != "" {
+			return tok
+		}
+	}
+	return ""
+}
+
 // LabelTraceEdges joins trace edges to GT timeline for gold wakee tokens.
-func LabelTraceEdges(trace []TraceEdge, tl *groundtruth.Timeline) ([]Label, []TraceEdge) {
+func LabelTraceEdges(trace []TraceEdge, hdr trace.Header, tl *groundtruth.Timeline) ([]Label, []TraceEdge) {
+	if hdr.KtimeBaseNs == 0 || hdr.WallBaseUTC == "" {
+		return nil, nil
+	}
+	lin := replayLineage(tl)
+	handoffIdx := NewChanHandoffIndex(BuildChanHandoffs(tl.AllRecords()))
 	var gold []Label
 	var edges []TraceEdge
 	for _, te := range trace {
-		tok := tl.TokenAt(te.WakeeGoid, te.Ts)
+		tok := tokenForWakee(tl, lin, handoffIdx, te)
 		if tok == "" {
 			continue
 		}

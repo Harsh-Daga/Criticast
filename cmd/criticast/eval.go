@@ -15,7 +15,7 @@ import (
 func runEval(args []string) error {
 	fs := flag.NewFlagSet("eval", flag.ExitOnError)
 	gtLog := fs.String("gt-log", "", "path to app log with CRITICAST_GT lines (or -)")
-	tracePath := fs.String("trace", "", "optional trace JSONL from record --out")
+	tracePath := fs.String("trace", "", "optional trace from record --out (.criticast or v1 .jsonl)")
 	modeStr := fs.String("mode", "e1-lineage", "e1-lineage|e2-sudog|e3-suppress|e4-naive|all")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -86,9 +86,12 @@ func defaultMechanisms() []string {
 
 func evalTraceJoin(records []groundtruth.Record, hdr trace.Header, events []event.Event, mode attribution.Mode, mechs []string) {
 	tl := groundtruth.NewTimeline(records)
+	fmt.Fprintf(os.Stderr, "eval: trace join (%d block ends, %d GT records)...\n",
+		countBlockEnds(events), len(records))
 	joinSt := attribution.JoinStatsFromTrace(hdr, events, tl)
 	traceEdges := attribution.EdgesFromTrace(hdr, events)
-	gold, edges := attribution.LabelTraceEdges(traceEdges, tl)
+	fmt.Fprintf(os.Stderr, "eval: labeling trace edges...\n")
+	gold, edges := attribution.LabelTraceEdges(traceEdges, hdr, tl)
 	if len(edges) == 0 {
 		fmt.Fprintf(os.Stderr,
 			"eval: no labeled trace edges (block_ends=%d with_goid=%d labeled=%d clock_corr=%v; re-record with --go-binary and a current trace file)\n",
@@ -125,6 +128,16 @@ func evalTraceJoin(records []groundtruth.Record, hdr trace.Header, events []even
 	fmt.Println("=== trace-joined ===")
 	printMatrix(matrix)
 	fmt.Printf("critical-path edge keys: %d\n", len(analyzer.PathKeySet(analyzer.BuildGraphs(edges, gold))))
+}
+
+func countBlockEnds(events []event.Event) int {
+	n := 0
+	for _, ev := range events {
+		if ev.Type == event.EVBlockEnd {
+			n++
+		}
+	}
+	return n
 }
 
 func printMatrix(m attribution.Matrix) {

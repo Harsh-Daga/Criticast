@@ -41,7 +41,8 @@ make test-bpf    # Linux + BTF
 | Area | Expectation |
 |------|-------------|
 | Attribution | Table-driven tests; adversarial fixture must not regress spawn/pool/mutex |
-| Analyzer | Graph and path tests; cycles must terminate |
+| Analyzer | Graph and path tests; `request_epoch_*` for Bar B; cycles must terminate |
+| Bar B (P2) | `./scripts/validate-bar-b.sh`; prod0: `./scripts/bar-b-scoped-batch.sh` (≥50 epochs, ≥80% pass) |
 | BPF | Object compiles; `test-bpf-object.sh` checks symbols |
 | Go offsets | `bpf/offsets.json` — no hardcoded goid offsets in source |
 

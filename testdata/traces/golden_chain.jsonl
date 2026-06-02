@@ -1,3 +1,4 @@
-{"version":1,"tgid":100,"min_block_ns":1000,"sample_mod":1,"started_utc":"2026-06-01T12:00:00Z","ktime_base_ns":0,"wall_base_utc":"2026-06-01T12:00:00Z"}
-{"TsNs":300,"Type":1,"Tgid":100,"Tid":101,"WakerTid":102,"BlockedNs":100,"StackID":-1,"WakerStackID":-1,"Cookie":1,"TaskID":10,"WakerTaskID":20,"WaitClass":4}
-{"TsNs":500,"Type":1,"Tgid":100,"Tid":102,"WakerTid":103,"BlockedNs":200,"StackID":-1,"WakerStackID":-1,"Cookie":1,"TaskID":20,"WakerTaskID":30,"WaitClass":4}
+{"Version":1,"Tgid":4242,"MinBlock":1000,"SampleMod":1,"Started":"2026-06-01T12:00:00Z"}
+{"TsNs":1000000,"Type":1,"Tid":10,"WakerTid":20,"BlockedNs":500000,"StackID":-1,"WakerStackID":-1,"TaskID":100,"WakerTaskID":200,"Aux":0,"WaitClass":4,"PrevState":1}
+{"TsNs":2000000,"Type":1,"Tid":20,"WakerTid":30,"BlockedNs":800000,"StackID":-1,"WakerStackID":-1,"TaskID":200,"WakerTaskID":300,"Aux":0,"WaitClass":4,"PrevState":1}
+{"TsNs":3000000,"Type":1,"Tid":30,"WakerTid":40,"BlockedNs":300000,"StackID":-1,"WakerStackID":-1,"TaskID":300,"WakerTaskID":400,"Aux":0,"WaitClass":4,"PrevState":1}

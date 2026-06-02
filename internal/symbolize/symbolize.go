@@ -64,8 +64,20 @@ func NewTraceResolver(stacks map[int32][]uint64) *TraceResolver {
 	return &TraceResolver{stacks: stacks}
 }
 
+// PCs returns program counters for a trace stack_id (empty if unknown).
+func (r *TraceResolver) PCs(stackID int32) []uint64 {
+	if stackID < 0 {
+		return nil
+	}
+	pcs, ok := r.stacks[stackID]
+	if !ok || len(pcs) == 0 {
+		return nil
+	}
+	return pcs
+}
+
 // Resolve returns frames for stackID. Missing or negative IDs yield nil, nil.
-// Stripped binaries degrade to hex PC placeholders (charter K.10).
+// Use NewForTrace to enrich PCs via ELF when a target binary is available.
 func (r *TraceResolver) Resolve(stackID int32) ([]Frame, error) {
 	if stackID < 0 {
 		return nil, nil

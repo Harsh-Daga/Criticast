@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/criticast/criticast/internal/analyzer"
 	"github.com/criticast/criticast/internal/export"
@@ -16,7 +17,7 @@ func runExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	pprofPath := fs.String("pprof", "", "write gzip pprof profile to path")
 	otlp := fs.Bool("otlp", false, "export OTLP-Profiles (not implemented in P1)")
-	request, _, minConf, spuriousUS := traceAnalyzeFlags(fs)
+	request, gtLog, scopeFrom, scopeTo, scopePad, scopeHandlerGoid, _, minConf, spuriousUS := traceAnalyzeFlags(fs)
 	sampleIdx := fs.Int("sample-index", -1, "reserved: sample index for multi-profile export")
 
 	tracePath, flagArgs, err := parseTracePathArgs(args)
@@ -47,9 +48,18 @@ func runExport(args []string) error {
 	if err != nil {
 		return fmt.Errorf("export: load trace: %w", err)
 	}
+	pad, err := time.ParseDuration(*scopePad)
+	if *scopePad != "" && err != nil {
+		return fmt.Errorf("export: --scope-pad: %w", err)
+	}
 	opts := analyzer.Options{
 		RequestScope:   *request,
-		MinConfidence:  uint8(*minConf),
+		GtLog:          *gtLog,
+		ScopeFromUTC:   *scopeFrom,
+		ScopeToUTC:     *scopeTo,
+		ScopePad:         pad,
+		ScopeHandlerGoid: *scopeHandlerGoid,
+		MinConfidence:    uint8(*minConf),
 		SpuriousWakeNs: *spuriousUS * 1000,
 	}
 	res, err := analyzer.Analyze(context.Background(), tf, opts)
@@ -62,9 +72,13 @@ func runExport(args []string) error {
 			edges = append(edges, analyzer.PathEdge{WaitEdge: rw.WaitEdge})
 		}
 	}
+	resolver, err := symbolize.NewForTrace(tf, tf.Header.TargetBinary)
+	if err != nil {
+		return fmt.Errorf("export: symbolize: %w", err)
+	}
 	in := export.PprofInput{
 		Edges:    edges,
-		Resolver: symbolize.NewTraceResolver(tf.Stacks),
+		Resolver: resolver,
 	}
 	if err := export.WritePprof(*pprofPath, in); err != nil {
 		return fmt.Errorf("export: pprof: %w", err)

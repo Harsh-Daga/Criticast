@@ -11,6 +11,9 @@ Start here, then drill into the charter for design depth.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | PRs, licenses, regression expectations |
 | [CI.md](CI.md) | Contributors | GitHub Actions jobs, triggers, local parity |
 | [P1_COMPLETION.md](P1_COMPLETION.md) | Maintainers | P1 plumbing vs thesis (Bar A / Bar B) |
+| [p2-bar-b-epoch-path.md](p2-bar-b-epoch-path.md) | Analyzer contributors | Request epoch model (Bar B literal) |
+| [p2-bar-b-falsification.md](p2-bar-b-falsification.md) | Validation | Targeted A-only worker slowdown test |
+| [../results/p2-validation.md](../results/p2-validation.md) | Reviewers | P2 Linux validation (Bar B pass, prod0 2026-06-02) |
 | [../CHARTER.md](../CHARTER.md) | Designers | Full technical specification |
 | [../AGENTS.md](../AGENTS.md) | Contributors + LLMs | Day-to-day engineering rules |
 | [../results/README.md](../results/README.md) | Reviewers | Overhead and attribution benchmark reports |

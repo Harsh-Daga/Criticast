@@ -73,6 +73,68 @@ func (t *Timeline) MechanismAt(goid uint64, ts time.Time) string {
 	return m
 }
 
+// RecordsBetween returns GT records with TS in [from, to] (wall clock, inclusive).
+func (t *Timeline) RecordsBetween(from, to time.Time) []Record {
+	var out []Record
+	for _, rec := range t.records {
+		if rec.TS.Before(from) || rec.TS.After(to) {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// GoidsForHandlerSpan returns the pinned handler goid only: GT sites on that goroutine
+// during [entry, exit] (plus pad). It does not include other concurrent handlers for the token.
+func (t *Timeline) GoidsForHandlerSpan(token string, handlerGoid uint64, entry, exit time.Time, pad time.Duration) map[uint64]struct{} {
+	out := map[uint64]struct{}{}
+	if handlerGoid == 0 {
+		return out
+	}
+	out[handlerGoid] = struct{}{}
+	if pad == 0 {
+		pad = 2 * time.Millisecond
+	}
+	from := entry.UTC().Add(-pad)
+	to := exit.UTC().Add(pad)
+	for _, rec := range t.records {
+		if rec.Token != token || rec.Goid != handlerGoid {
+			continue
+		}
+		if rec.TS.Before(from) || rec.TS.After(to) {
+			continue
+		}
+		out[rec.Goid] = struct{}{}
+	}
+	return out
+}
+
+// GoidsWithTokenBetween returns goids that logged the token within [from, to] (wall clock).
+func (t *Timeline) GoidsWithTokenBetween(token string, from, to time.Time) map[uint64]struct{} {
+	out := make(map[uint64]struct{})
+	for _, rec := range t.records {
+		if rec.Token != token {
+			continue
+		}
+		if rec.TS.Before(from) || rec.TS.After(to) {
+			continue
+		}
+		if rec.Goid != 0 {
+			out[rec.Goid] = struct{}{}
+		}
+	}
+	return out
+}
+
+// AllRecords returns the timeline's GT records in time order.
+func (t *Timeline) AllRecords() []Record {
+	if t == nil {
+		return nil
+	}
+	return t.records
+}
+
 // TokenAt returns the request token for goid at or before ts (last known).
 func (t *Timeline) TokenAt(goid uint64, ts time.Time) string {
 	list := t.byGoid[goid]

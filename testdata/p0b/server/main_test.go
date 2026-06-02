@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -21,6 +22,27 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = shutdown(context.Background())
 	os.Exit(code)
+}
+
+func TestWorkerSlowdown(t *testing.T) {
+	if got := workerSlowdown(0, "B"); got != 2*time.Millisecond {
+		t.Fatalf("default slow=%v", got)
+	}
+	t.Setenv("P0B_WORKER_SLOW_TOKEN", "A")
+	t.Setenv("P0B_WORKER_SLOW_NS", "5000000")
+	if got := workerSlowdown(0, "A"); got != 5*time.Millisecond {
+		t.Fatalf("A slow=%v", got)
+	}
+	if got := workerSlowdown(0, "B"); got != 2*time.Millisecond {
+		t.Fatalf("B unchanged=%v", got)
+	}
+	t.Setenv("P0B_SLOW_WORKER_ID", "1")
+	if got := workerSlowdown(0, "A"); got != 2*time.Millisecond {
+		t.Fatalf("worker 0 not slowed when only worker 1 is: %v", got)
+	}
+	if got := workerSlowdown(1, "A"); got != 5*time.Millisecond {
+		t.Fatalf("worker 1 slow=%v", got)
+	}
 }
 
 func TestHandleWork(t *testing.T) {

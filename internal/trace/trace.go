@@ -20,37 +20,35 @@ type Header struct {
 	MinBlock    uint64 `json:"min_block_ns"`
 	SampleMod   uint32 `json:"sample_mod"`
 	Started     string `json:"started_utc"`
-	KtimeBaseNs uint64 `json:"ktime_base_ns,omitempty"`
-	WallBaseUTC string `json:"wall_base_utc,omitempty"`
+	KtimeBaseNs    uint64 `json:"ktime_base_ns,omitempty"`
+	WallBaseUTC    string `json:"wall_base_utc,omitempty"`
+	TargetBinary   string `json:"target_binary,omitempty"`
 }
 
 // EventWallTime maps bpf_ktime_get_ns (boot monotonic) to wall clock for GT join.
 // Requires KtimeBaseNs and WallBaseUTC from record (first-event anchor).
 func (h Header) EventWallTime(tsNs uint64) time.Time {
-	if h.KtimeBaseNs == 0 || h.WallBaseUTC == "" {
-		return time.Unix(0, int64(tsNs))
+	if t, ok := h.KtimeToWall(tsNs); ok {
+		return t
 	}
-	base, err := time.Parse(time.RFC3339Nano, h.WallBaseUTC)
-	if err != nil {
-		return time.Unix(0, int64(tsNs))
-	}
-	delta := int64(tsNs) - int64(h.KtimeBaseNs)
-	return base.Add(time.Duration(delta))
+	return time.Unix(0, int64(tsNs))
 }
 
 // File holds decoded trace contents (v1 or v2).
 type File struct {
-	Header Header
-	Events []event.Event
-	Stacks map[int32][]uint64
-	Footer *Footer
-	Format int // Version1 or Version2
+	Header  Header
+	Events  []event.Event
+	Stacks  map[int32][]uint64
+	Modules []Module
+	Footer  *Footer
+	Format  int // Version1 or Version2
 }
 
 // WriteOptions configures v2 trace output.
 type WriteOptions struct {
-	Stacks map[int32][]uint64
-	Footer *Footer
+	Stacks  map[int32][]uint64
+	Modules []Module
+	Footer  *Footer
 }
 
 // Write encodes a v2 trace: header, stacks section, events, footer.
@@ -77,6 +75,7 @@ func Write(w io.Writer, hdr Header, events []event.Event, opts *WriteOptions) er
 		KtimeBaseNs:        hdr.KtimeBaseNs,
 		WallBaseUTC:        hdr.WallBaseUTC,
 		StructEventVersion: structEventVersion,
+		TargetBinary:       hdr.TargetBinary,
 	}
 	b, err := json.Marshal(v2)
 	if err != nil {
@@ -96,6 +95,16 @@ func Write(w io.Writer, hdr Header, events []event.Event, opts *WriteOptions) er
 	}
 	if _, err := fmt.Fprintf(w, "%s\n", stkLine); err != nil {
 		return err
+	}
+
+	if opts != nil && len(opts.Modules) > 0 {
+		modLine, err := json.Marshal(ModulesSection{Section: sectionModules, Modules: opts.Modules})
+		if err != nil {
+			return fmt.Errorf("trace modules section: %w", err)
+		}
+		if _, err := fmt.Fprintf(w, "%s\n", modLine); err != nil {
+			return err
+		}
 	}
 
 	enc := json.NewEncoder(w)
@@ -209,6 +218,13 @@ func readV2(sc *bufio.Scanner, first []byte) (*File, error) {
 		sec, isSec := isSectionLine(line)
 		if isSec {
 			switch sec {
+			case sectionModules:
+				var mods ModulesSection
+				if err := json.Unmarshal(line, &mods); err != nil {
+					return nil, fmt.Errorf("trace modules section: %w", err)
+				}
+				out.Modules = mods.Modules
+				continue
 			case sectionFooter:
 				var ft Footer
 				if err := json.Unmarshal(line, &ft); err != nil {

@@ -15,7 +15,14 @@ func TestAttributeTraceEdgeChanWithoutElem(t *testing.T) {
 
 func TestAttributeTraceEdgeChanWithElem(t *testing.T) {
 	m := AttributeTraceEdge(event.WCChan, 0xdead, 0)
-	if m.Ambiguous || m.Confidence < 70 {
+	if m.Ambiguous || m.Confidence < 80 {
+		t.Fatalf("got %+v", m)
+	}
+}
+
+func TestAttributeTraceEdgeLineageCookie(t *testing.T) {
+	m := AttributeTraceEdge(event.WCNet, 0, 0xabc)
+	if m.Confidence < 75 {
 		t.Fatalf("got %+v", m)
 	}
 }

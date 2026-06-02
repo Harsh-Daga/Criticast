@@ -19,10 +19,10 @@
 | Phase | Charter | Engineering status | Validation bar |
 |-------|---------|-------------------|----------------|
 | **P0** | Overhead + attribution gates | **Done** | [results/phase0/](results/phase0/) |
-| **P1** | Tier-0/1 record/analyze/pprof | **Plumbing done** (Bar A) | [P1_COMPLETION.md](P1_COMPLETION.md), [results/p1-smoke.md](../results/p1-smoke.md) |
-| **P1 gap** | — | **Open** (Bar B) | Request-scoped path, real classes, no idle-dominated “critical path” |
-| **P2** | Go task-level + Tier-2 + GT gate | **Next** | [ROADMAP.md](ROADMAP.md) (Phase 2), `scripts/validate-bar-b.sh` |
-| **P3** | k8s, OTLP, TUI, continuous | Planned | After P2 gate |
+| **P1** | Tier-0/1 record/analyze/pprof | **Bar A done** (plumbing) | [P1_COMPLETION.md](P1_COMPLETION.md), [results/p1-smoke.md](../results/p1-smoke.md) |
+| **P1 gap** | — | Bar B literal (partial) | Superseded by request-epoch pipeline — see [STATUS.md](../results/STATUS.md) |
+| **P2** | Go task-level + Tier-2 + GT mechanism gate | **Mechanism done**; Bar B **code complete** | Mechanism ✓; **≥50-epoch batch on prod0** closes P2 |
+| **P3** | k8s, OTLP, TUI, netpoll, labeling at scale | Planned | After Bar B statistical gate |
 | **P4** | Tokio, Tier-3, JVM, io_uring | Research | Post-P3 |
 
 **Active branch:** `phase2/tier2-product` (all P2 + Bar B work).
@@ -36,7 +36,7 @@
 | Bar | Question | Phase |
 |-----|----------|-------|
 | **A — Plumbing** | Does data flow kernel → trace → analyze → export without drops? | P1 ✓ |
-| **B — Thesis** | For **one scoped request**, does critical path ≈ wall time with **labeled, non-idle** dominant waits? | P2 (+ finish P1 UX/policy) |
+| **B — Thesis** | For **scoped requests** on **live capture**, does critical path ≈ wall time with **labeled, non-idle** dominant waits? | **Open** — request epoch shipped; **≥80% of ≥50** GT epochs on prod0 ([STATUS.md](../results/STATUS.md)) |
 
 Commodity scheduler graphs pass Bar A only (bcc offwaketime class). Criticast’s thesis is Bar B.
 

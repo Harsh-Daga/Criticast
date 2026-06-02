@@ -27,33 +27,86 @@ func NodeFromEvent(ev event.Event) NodeID {
 	return NodeFromTask(ev.TaskID, ev.Tid)
 }
 
-// ParseRequestScope matches --request against cookie (hex) or tid (decimal).
-func ParseRequestScope(scope string) (cookie uint64, tid uint32, ok bool) {
-	if scope == "" {
-		return 0, 0, false
-	}
-	scope = strings.TrimSpace(scope)
-	if strings.HasPrefix(scope, "0x") || strings.HasPrefix(scope, "0X") {
-		v, err := strconv.ParseUint(scope, 0, 64)
-		return v, 0, err == nil
-	}
-	if v, err := strconv.ParseUint(scope, 10, 32); err == nil {
-		return 0, uint32(v), true
-	}
-	v, err := strconv.ParseUint(scope, 16, 64)
-	return v, 0, err == nil
+// RequestScope is the analyze/export scope selector from --request.
+type RequestScope struct {
+	Cookie uint64
+	Tid    uint32
+	TaskID uint64 // runtime goroutine id (casgstatus task_id), not Linux tid
+	Token  string // GT request token (requires --gt-log; joins trace wall time)
 }
 
-// MatchesScope reports whether an edge belongs to the request scope.
-func MatchesScope(cookie uint64, tid uint32, scopeCookie uint64, scopeTid uint32, scoped bool) bool {
+// Active reports whether any scope field is set.
+func (s RequestScope) Active() bool {
+	return s.Cookie != 0 || s.Tid != 0 || s.TaskID != 0 || s.Token != ""
+}
+
+// ParseRequestScope parses --request: cookie (0x…), tid (decimal or tid=N), goid (goid=N).
+func ParseRequestScope(scope string) (RequestScope, bool) {
+	if scope == "" {
+		return RequestScope{}, false
+	}
+	scope = strings.TrimSpace(scope)
+	lower := strings.ToLower(scope)
+	if strings.HasPrefix(lower, "goid=") || strings.HasPrefix(lower, "task_id=") {
+		key, val, ok := strings.Cut(scope, "=")
+		if !ok {
+			return RequestScope{}, false
+		}
+		_ = key
+		v, err := strconv.ParseUint(strings.TrimSpace(val), 10, 64)
+		if err != nil || v == 0 {
+			return RequestScope{}, false
+		}
+		return RequestScope{TaskID: v}, true
+	}
+	if strings.HasPrefix(lower, "token=") {
+		_, val, ok := strings.Cut(scope, "=")
+		if !ok {
+			return RequestScope{}, false
+		}
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return RequestScope{}, false
+		}
+		return RequestScope{Token: val}, true
+	}
+	if strings.HasPrefix(lower, "tid=") {
+		_, val, ok := strings.Cut(scope, "=")
+		if !ok {
+			return RequestScope{}, false
+		}
+		v, err := strconv.ParseUint(strings.TrimSpace(val), 10, 32)
+		if err != nil || v == 0 {
+			return RequestScope{}, false
+		}
+		return RequestScope{Tid: uint32(v)}, true
+	}
+	if strings.HasPrefix(scope, "0x") || strings.HasPrefix(scope, "0X") {
+		v, err := strconv.ParseUint(scope, 0, 64)
+		return RequestScope{Cookie: v}, err == nil
+	}
+	if v, err := strconv.ParseUint(scope, 10, 32); err == nil {
+		return RequestScope{Tid: uint32(v)}, true
+	}
+	v, err := strconv.ParseUint(scope, 16, 64)
+	return RequestScope{Cookie: v}, err == nil && v != 0
+}
+
+// EdgeMatchesScope reports whether a wait edge belongs to the request scope.
+func EdgeMatchesScope(e WaitEdge, scope RequestScope, scoped bool) bool {
 	if !scoped {
 		return true
 	}
-	if scopeCookie != 0 && cookie == scopeCookie {
+	if scope.Cookie != 0 && e.Cookie == scope.Cookie {
 		return true
 	}
-	if scopeTid != 0 && tid == scopeTid {
+	if scope.Tid != 0 && e.Tid == scope.Tid {
 		return true
+	}
+	if scope.TaskID != 0 {
+		if uint64(e.To) == scope.TaskID || uint64(e.From) == scope.TaskID {
+			return true
+		}
 	}
 	return false
 }

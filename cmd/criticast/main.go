@@ -58,8 +58,8 @@ func usage() {
 Usage:
   criticast env
   criticast record --pid <pid> --dur <sec> [--min-block 1us|50us] [--sample N] [--out trace.criticast]
-  criticast analyze <trace> [--request cookie|tid] [--top N] [--format text|json]
-  criticast export <trace> --pprof out.pb.gz [--request cookie|tid]
+  criticast analyze <trace> [--request cookie|tid|goid] [--top N] [--format text|json]
+  criticast export <trace> --pprof out.pb.gz [--request cookie|tid|goid]
   criticast eval --gt-log <log> [--trace trace.criticast] [--mode e1-lineage|all]
   criticast go-smoke --pid <pid> [--go-binary /proc/PID/exe] [--go-version go1.22.0]
   criticast probe-stats --pid <pid> --dur 5s  (sched BPF counters; run wrk while waiting)

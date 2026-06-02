@@ -29,4 +29,7 @@ make test-bpf
 echo "=== workloads (sanity) ==="
 make go workloads
 
+echo "=== validate-bar-b (offline) ==="
+./scripts/validate-bar-b.sh
+
 echo "ci-linux-bpf: OK"
